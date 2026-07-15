@@ -87,11 +87,20 @@ async def test_runtime_broadcasts_speech_but_keeps_decision_private() -> None:
     )
     await runtime.setup(game, {"刘备": "村民提示", "曹操": "狼人提示"})
 
-    await runtime.discuss("game-1", ["刘备", "曹操"], "公开讨论", 1)
+    activities = [
+        activity
+        async for activity in runtime.discuss("game-1", ["刘备", "曹操"], "公开讨论", 1)
+    ]
     before = len(runtime._sessions["game-1"]["曹操"].observed)
     result = await runtime.decide("game-1", "刘备", "私密选择", Choice)
 
     assert result == Choice(target="曹操")
+    assert [activity.kind for activity in activities] == [
+        "turn_started",
+        "speech",
+        "turn_started",
+        "speech",
+    ]
     assert len(runtime._sessions["game-1"]["曹操"].observed) == before
     assert any(
         getattr(message, "name", "") == "刘备"
@@ -121,6 +130,12 @@ async def test_runtime_continues_discussion_when_one_player_fails() -> None:
     )
     await runtime.setup(game, {"刘备": "村民提示", "曹操": "狼人提示"})
 
-    speeches = await runtime.discuss("game-failure", ["刘备", "曹操"], "公开讨论", 1)
+    activities = [
+        activity
+        async for activity in runtime.discuss(
+            "game-failure", ["刘备", "曹操"], "公开讨论", 1
+        )
+    ]
 
-    assert speeches == [{"player": "曹操", "content": "曹操发言"}]
+    speakers = [activity.player for activity in activities if activity.kind == "speech"]
+    assert speakers == ["曹操"]

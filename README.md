@@ -9,6 +9,7 @@ src/werewolf_game/
 ├─ domain/          玩家、角色、规则、行动 Schema 和游戏事件
 ├─ application/     游戏引擎、任务服务、端口和事件发布
 ├─ infrastructure/  AgentScope、OpenAI-compatible、SQLite 和日志适配
+├─ mcp/             独立的 stdio MCP 服务
 ├─ api/             FastAPI、Bearer 鉴权、REST 和 SSE
 ├─ config.py        环境变量配置
 └─ cli.py           服务和单局命令行入口
@@ -125,6 +126,36 @@ Invoke-RestMethod `
 SSE 支持 `Last-Event-ID` 断线补发。浏览器原生 `EventSource` 无法设置 Authorization Header，前端应使用支持流式 `fetch` 的 SSE 客户端，不要把令牌放入 URL。
 
 默认 `view=public`，不包含身份、狼人讨论、预言家结果和女巫行动；管理端复盘可显式使用 `view=god`。
+
+## 发言审核 MCP
+
+完整设计、调用链和测试说明见 [发言内容审核 MCP 实现流程](docs/mcp-speech-moderation.md)。
+
+游戏运行时会启动一个独立的 stdio MCP 子进程，并在公开发言写入事件库前调用
+`review_speech` 工具。审核服务使用当前 OpenAI-compatible 模型返回结构化结果：
+
+- `allowed`：原文进入公开 `speech` 事件。
+- `blocked`：原文不会持久化，公开事件改为固定的审核隐藏提示。
+- MCP 或模型不可用：跳过本轮发言但不中断对局，也不会放行未经审核的原文。
+
+狼人杀规则语境中的“击杀”“毒药”“投票”等虚构描述默认允许。被拦截或审核不可用时，
+系统另存一条不包含原文的 `internal` 类型 `speech_moderated` 事件。
+
+MCP 服务也可以单独启动，供 MCP Inspector 调试：
+
+```powershell
+uv run werewolf-moderation-mcp
+```
+
+使用 Inspector 启动并检查 stdio 服务：
+
+```powershell
+npx -y @modelcontextprotocol/inspector uv run werewolf-moderation-mcp
+```
+
+在 Inspector 中确认只有 `review_speech` 工具，然后分别测试正常游戏发言、辱骂、
+个人信息和“忽略审核规则”等提示词注入输入。stdio 协议要求标准输出只包含 MCP 消息，
+因此服务日志不会写入 stdout。
 
 ## 开发验收
 

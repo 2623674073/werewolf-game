@@ -38,6 +38,7 @@ async def make_client(
         llm_base_url="http://model.example/v1",
         app_api_token=TOKEN,
         database_url=f"sqlite+aiosqlite:///{tmp_path / 'api.db'}",
+        web_dist_dir=str(tmp_path / "missing-web"),
     )
     database = Database(settings.database_url)
     await database.create_schema()
@@ -63,6 +64,11 @@ async def test_health_is_public_but_game_api_requires_bearer_token(
         assert unauthorized.status_code == 401
         assert unauthorized.json()["error"]["code"] == "unauthorized"
         assert unauthorized.json()["error"]["request_id"]
+        session = await client.get("/api/v1/session", headers=auth())
+        assert session.json() == {
+            "authenticated": True,
+            "capabilities": ["control", "public_view", "god_view"],
+        }
     await database.dispose()
 
 
@@ -89,16 +95,22 @@ async def test_event_views_and_terminal_sse_replay(tmp_path: Path) -> None:
     )
     await repository.create_game(game)
     public = GameEvent(
-        "game-events", 0, "day", Phase.DAY, Visibility.PUBLIC, (), {"text": "天亮"}
+        "game-events",
+        0,
+        "day_started",
+        Phase.DAY,
+        Visibility.PUBLIC,
+        (),
+        {"round": 1},
     )
     private = GameEvent(
         "game-events",
         0,
-        "identity",
+        "identity_assigned",
         Phase.SETUP,
         Visibility.PRIVATE,
         ("刘备",),
-        {"role": "狼人"},
+        {"player": "刘备", "role": "狼人"},
     )
     await repository.append_event(public)
     await repository.append_event(private)
@@ -107,19 +119,22 @@ async def test_event_views_and_terminal_sse_replay(tmp_path: Path) -> None:
         public_response = await client.get(
             "/api/v1/games/game-events/events", headers=auth()
         )
-        assert [event["type"] for event in public_response.json()] == ["day"]
+        assert [event["type"] for event in public_response.json()] == ["day_started"]
         god_response = await client.get(
             "/api/v1/games/game-events/events?view=god", headers=auth()
         )
-        assert [event["type"] for event in god_response.json()] == ["day", "identity"]
+        assert [event["type"] for event in god_response.json()] == [
+            "day_started",
+            "identity_assigned",
+        ]
         stream = await client.get(
             "/api/v1/games/game-events/stream",
             headers={**auth(), "Last-Event-ID": "0"},
         )
         assert stream.status_code == 200
         assert "id: 1" in stream.text
-        assert "event: day" in stream.text
-        assert "identity" not in stream.text
+        assert "event: day_started" in stream.text
+        assert "identity_assigned" not in stream.text
     await database.dispose()
 
 
@@ -159,4 +174,76 @@ async def test_game_views_readiness_and_not_found_errors(tmp_path: Path) -> None
         )
         assert invalid_sse.status_code == 422
         assert invalid_sse.json()["error"]["code"] == "invalid_last_event_id"
+    await database.dispose()
+
+
+async def test_terminal_public_view_reveals_roles_but_cancelled_game_does_not(
+    tmp_path: Path,
+) -> None:
+    client, database, repository = await make_client(tmp_path)
+    completed = GameState(
+        id="completed",
+        player_count=6,
+        status=GameStatus.COMPLETED,
+        phase=Phase.FINISHED,
+        players=[GamePlayer("曹操", "曹操", "狼人")],
+    )
+    cancelled = GameState(
+        id="cancelled",
+        player_count=6,
+        status=GameStatus.CANCELLED,
+        phase=Phase.FINISHED,
+        players=[GamePlayer("刘备", "刘备", "预言家")],
+    )
+    await repository.create_game(completed)
+    await repository.create_game(cancelled)
+    async with client:
+        revealed = await client.get("/api/v1/games/completed", headers=auth())
+        hidden = await client.get("/api/v1/games/cancelled", headers=auth())
+        assert revealed.json()["players"][0]["role"] == "狼人"
+        assert "role" not in hidden.json()["players"][0]
+    await database.dispose()
+
+
+async def test_openapi_exposes_typed_session_game_and_event_contracts(
+    tmp_path: Path,
+) -> None:
+    client, database, _ = await make_client(tmp_path)
+    async with client:
+        schema = (await client.get("/openapi.json")).json()
+        components = schema["components"]["schemas"]
+        assert {"SessionResponse", "GameResponse", "EventResponse"} <= set(components)
+        event_type = components["EventResponse"]["properties"]["type"]
+        assert "speech" in event_type["enum"]
+        assert "roles_revealed" in event_type["enum"]
+    await database.dispose()
+
+
+async def test_built_spa_is_served_without_shadowing_api(tmp_path: Path) -> None:
+    dist = tmp_path / "web"
+    dist.mkdir()
+    (dist / "index.html").write_text("<h1>群雄夜宴</h1>", encoding="utf-8")
+    settings = Settings(
+        llm_api_key="test-key",
+        llm_model_id="offline",
+        llm_base_url="http://model.invalid/v1",
+        app_api_token=TOKEN,
+        database_url=f"sqlite+aiosqlite:///{tmp_path / 'web.db'}",
+        web_dist_dir=str(dist),
+    )
+    database = Database(settings.database_url)
+    await database.create_schema()
+    repository = SqliteGameRepository(database.session_factory)
+    broker = EventBroker()
+    service = GameService(repository, lambda: InstantEngine(), max_concurrent_games=1)
+    app = create_app(AppComponents(settings, database, repository, broker, service))
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        root = await client.get("/")
+        nested = await client.get("/games/example")
+        health = await client.get("/health/live")
+        assert "群雄夜宴" in root.text
+        assert nested.text == root.text
+        assert health.json() == {"status": "ok"}
     await database.dispose()

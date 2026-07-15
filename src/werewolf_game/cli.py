@@ -18,6 +18,7 @@ from werewolf_game.infrastructure.agentscope_runtime import (
 )
 from werewolf_game.infrastructure.database import Database
 from werewolf_game.infrastructure.logging import configure_logging
+from werewolf_game.infrastructure.moderation import McpSpeechModerator
 from werewolf_game.infrastructure.repository import SqliteGameRepository
 
 
@@ -100,6 +101,8 @@ async def _run_game(
     )
     broker = EventBroker()
     events = EventCoordinator(repository, broker)
+    moderator = McpSpeechModerator(execution_timeout=settings.llm_timeout + 5)
+    await moderator.start()
     game = GameState(id=str(uuid4()), player_count=player_count)
     await repository.create_game(game)
     presenter_task: asyncio.Task[None] | None = None
@@ -110,7 +113,7 @@ async def _run_game(
         )
         await asyncio.sleep(0)
     try:
-        await GameEngine(runtime, repository, events).run(game)
+        await GameEngine(runtime, repository, events, moderator).run(game)
         if presenter_task is not None:
             await presenter_task
         print(f"游戏结束：{game.winner or game.status.value}")
@@ -118,6 +121,7 @@ async def _run_game(
     finally:
         if presenter_task is not None and not presenter_task.done():
             presenter_task.cancel()
+        await moderator.close()
         await database.dispose()
 
 

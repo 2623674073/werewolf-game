@@ -25,3 +25,4 @@ class Settings(BaseSettings):
     model_max_retries: int = Field(default=2, ge=0, le=5)
     host: str = "127.0.0.1"
     port: int = Field(default=8000, ge=1, le=65535)
+    web_dist_dir: str = "frontend/dist"
