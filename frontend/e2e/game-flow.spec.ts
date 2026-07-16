@@ -9,7 +9,7 @@ test('login, launch, watch, switch view and replay a deterministic game', async 
   await page.getByRole('button', { name: /一键开局/ }).click()
   await expect(page).toHaveURL(/\/games\/[a-f0-9-]+/)
   await expect(page.getByText('公开', { exact: true })).toBeVisible()
-  await expectSeatsOnBoardEllipse(page)
+  await expectSeatsOnBoardEllipse(page, 6)
   await page.waitForTimeout(800)
   await page.getByRole('button', { name: '追到最新' }).click()
   await expect(page.getByText(/曹操·狼人/)).toBeVisible()
@@ -27,11 +27,25 @@ test('login, launch, watch, switch view and replay a deterministic game', async 
   await expect(page.getByText('身份揭晓')).toBeVisible()
 })
 
-async function expectSeatsOnBoardEllipse(page: import('@playwright/test').Page) {
+test('keeps a twelve-player board clear of the central dialogue card', async ({ page }) => {
+  await page.goto('/login')
+  await page.getByPlaceholder('输入管理令牌').fill('e2e-token-at-least-24-characters')
+  await page.getByRole('button', { name: '持令入席' }).click()
+  await page.getByLabel('入局人数').selectOption('12')
+  await page.getByRole('button', { name: /一键开局/ }).click()
+  await expectSeatsOnBoardEllipse(page, 12)
+})
+
+async function expectSeatsOnBoardEllipse(
+  page: import('@playwright/test').Page,
+  playerCount: number,
+) {
   const board = await page.locator('.game-board').boundingBox()
+  const stage = await page.locator('.center-stage').boundingBox()
   const seats = page.locator('.player-seat')
   expect(board).not.toBeNull()
-  expect(await seats.count()).toBe(6)
+  expect(stage).not.toBeNull()
+  expect(await seats.count()).toBe(playerCount)
   if (!board) return
 
   for (let index = 0; index < (await seats.count()); index += 1) {
@@ -42,10 +56,26 @@ async function expectSeatsOnBoardEllipse(page: import('@playwright/test').Page) 
     expect(seat.y).toBeGreaterThanOrEqual(board.y)
     expect(seat.x + seat.width).toBeLessThanOrEqual(board.x + board.width)
     expect(seat.y + seat.height).toBeLessThanOrEqual(board.y + board.height)
+    if (stage) expect(rectanglesOverlap(seat, stage)).toBe(false)
 
     const x = ((seat.x + seat.width / 2 - board.x) / board.width) * 100
     const y = ((seat.y + seat.height / 2 - board.y) / board.height) * 100
-    const ellipse = ((x - 50) / 38) ** 2 + ((y - 50) / 36) ** 2
+    const radiusX = playerCount >= 10 ? 39 : 38.5
+    const radiusY = playerCount >= 10 ? 39 : 38
+    const ellipse = ((x - 50) / radiusX) ** 2 + ((y - 50) / radiusY) ** 2
     expect(ellipse).toBeCloseTo(1, 1)
   }
+}
+
+function rectanglesOverlap(
+  first: { x: number; y: number; width: number; height: number },
+  second: { x: number; y: number; width: number; height: number },
+): boolean {
+  const tolerance = 2
+  return !(
+    first.x + first.width <= second.x + tolerance ||
+    second.x + second.width <= first.x + tolerance ||
+    first.y + first.height <= second.y + tolerance ||
+    second.y + second.height <= first.y + tolerance
+  )
 }

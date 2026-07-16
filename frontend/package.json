@@ -11,7 +11,7 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "e2e": "playwright test",
-    "api:generate": "uv run python ../scripts/export_openapi.py && openapi-typescript openapi.json -o src/api/generated.ts"
+    "api:generate": "uv run python ../scripts/export_openapi.py && openapi-typescript openapi.json -o src/api/generated.ts && prettier --write openapi.json src/api/generated.ts"
   },
   "dependencies": {
     "@microsoft/fetch-event-source": "^2.0.1",

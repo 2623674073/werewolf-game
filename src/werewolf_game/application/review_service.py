@@ -103,7 +103,11 @@ class GameReviewService:
                             type=event.type,
                             visibility=event.visibility.value,
                             recipients=list(event.recipients),
-                            payload=event.payload,
+                            payload={
+                                key: value
+                                for key, value in event.payload.items()
+                                if key != "stream_trace"
+                            },
                         )
                         for event in events
                     ],

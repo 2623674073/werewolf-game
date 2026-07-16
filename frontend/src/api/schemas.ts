@@ -40,6 +40,16 @@ export const eventSchema = z.object({
   created_at: z.string(),
 })
 
+export const speechStreamFrameSchema = z.object({
+  game_id: z.string(),
+  type: z.enum(['speech_delta', 'speech_failed']),
+  phase: z.enum(['setup', 'night', 'day', 'finished']),
+  visibility: z.enum(['public', 'private', 'internal']),
+  recipients: z.array(z.string()),
+  payload: z.record(z.string(), z.unknown()),
+  created_at: z.string(),
+})
+
 const turningPointSchema = z.object({
   title: z.string(),
   analysis: z.string(),

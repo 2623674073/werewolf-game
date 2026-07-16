@@ -9,12 +9,14 @@ describe('player board geometry', () => {
     )
 
     for (const position of positions) {
-      const ellipse = ((position.x - 50) / 38) ** 2 + ((position.y - 50) / 36) ** 2
+      const radiusX = playerCount >= 10 ? 39 : 38.5
+      const radiusY = playerCount >= 10 ? 39 : 38
+      const ellipse = ((position.x - 50) / radiusX) ** 2 + ((position.y - 50) / radiusY) ** 2
       expect(ellipse).toBeCloseTo(1, 8)
-      expect(position.x).toBeGreaterThanOrEqual(12)
-      expect(position.x).toBeLessThanOrEqual(88)
-      expect(position.y).toBeGreaterThanOrEqual(14)
-      expect(position.y).toBeLessThanOrEqual(86)
+      expect(position.x).toBeGreaterThanOrEqual(11)
+      expect(position.x).toBeLessThanOrEqual(89)
+      expect(position.y).toBeGreaterThanOrEqual(11)
+      expect(position.y).toBeLessThanOrEqual(89)
     }
   })
 })

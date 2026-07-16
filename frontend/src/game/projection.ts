@@ -5,6 +5,7 @@ export interface GameProjection {
   alive: Map<string, boolean>
   roles: Map<string, string>
   currentSpeaker: string | null
+  speechPlayer: string | null
   currentSpeech: string | null
 }
 
@@ -20,6 +21,7 @@ export function projectGame(game: Game, events: GameEvent[], cursor: number): Ga
     if (player.role) roles.set(player.name, player.role)
   }
   let currentSpeaker: string | null = null
+  let speechPlayer: string | null = null
   let currentSpeech: string | null = null
 
   for (const event of visibleEvents) {
@@ -32,27 +34,23 @@ export function projectGame(game: Game, events: GameEvent[], cursor: number): Ga
     }
     if (event.type === 'speaker_turn_started') {
       currentSpeaker = text(event.payload.player)
-      currentSpeech = null
     }
     if (event.type === 'speech') {
       currentSpeaker = text(event.payload.player)
+      speechPlayer = currentSpeaker
       currentSpeech = text(event.payload.content)
     }
     if (event.type === 'night_result') {
       for (const name of strings(event.payload.deaths)) alive.set(name, false)
-      currentSpeaker = null
-      currentSpeech = null
     }
     if (event.type === 'vote_result') {
       const votedOut = text(event.payload.voted_out)
       const hunterShot = text(event.payload.hunter_shot)
       if (votedOut) alive.set(votedOut, false)
       if (hunterShot) alive.set(hunterShot, false)
-      currentSpeaker = null
-      currentSpeech = null
     }
   }
-  return { visibleEvents, alive, roles, currentSpeaker, currentSpeech }
+  return { visibleEvents, alive, roles, currentSpeaker, speechPlayer, currentSpeech }
 }
 
 export function text(value: unknown): string | null {

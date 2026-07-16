@@ -6,6 +6,7 @@ export function PlaybackControls() {
   const { events, cursor, playing, speed, setCursor, setPlaying, setSpeed, restart, jumpLatest } =
     usePlaybackStore()
   const maximum = Math.max(0, events.length - 1)
+  const unread = Math.max(0, events.length - cursor - 1)
   return (
     <footer className="playback-bar">
       <button
@@ -31,7 +32,7 @@ export function PlaybackControls() {
         }}
       />
       <span className="seq-label">{events.length} 卷</span>
-      <label className="speed-select">
+      <label className="speed-select" title="历史回放倍速">
         <Gauge size={16} />
         <select
           value={speed}
@@ -45,7 +46,7 @@ export function PlaybackControls() {
       </label>
       <button className="button compact" onClick={jumpLatest}>
         <SkipForward size={16} />
-        追到最新
+        追到最新{unread > 0 ? `（${unread}）` : ''}
       </button>
     </footer>
   )

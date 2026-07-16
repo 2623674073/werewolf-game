@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
+from agentscope.event import TextBlockDeltaEvent
 from agentscope.message import AssistantMsg
 from agentscope.model import OpenAIChatModel
 from pydantic import BaseModel
@@ -45,10 +46,38 @@ class FakeAgent:
         self.state.context.append(reply)
         return reply
 
+    async def reply_stream(self, message: Any) -> Any:
+        self.state.context.append(message)
+        content = f"{self.name}发言"
+        for delta in (self.name, "发言"):
+            yield TextBlockDeltaEvent(
+                reply_id=f"reply-{self.name}",
+                block_id="text",
+                delta=delta,
+            )
+        self.state.context.append(AssistantMsg(name=self.name, content=content))
+
 
 class FailingReplyAgent(FakeAgent):
-    async def reply(self, message: Any) -> Any:
+    async def reply_stream(self, message: Any) -> Any:
         raise RuntimeError("single player failed")
+        yield
+
+
+class UnsupportedStreamError(RuntimeError):
+    status_code = 400
+
+
+class UnsupportedStreamAgent(FakeAgent):
+    async def reply_stream(self, message: Any) -> Any:
+        raise UnsupportedStreamError("streaming is unsupported")
+        yield
+
+
+class PartialStreamAgent(FakeAgent):
+    async def reply_stream(self, message: Any) -> Any:
+        yield TextBlockDeltaEvent(reply_id="partial", block_id="text", delta="半句")
+        raise RuntimeError("connection lost")
 
 
 def test_openai_compatible_factory_uses_generic_credential_and_formatter() -> None:
@@ -64,6 +93,16 @@ def test_openai_compatible_factory_uses_generic_credential_and_formatter() -> No
     assert model.credential.base_url == "http://model.example/v1"
     assert model.stream is False
     assert model.client_kwargs["timeout"] == 45
+
+    streaming = build_openai_compatible_model(
+        api_key="secret-key",
+        model_name="deepseek-v4-flash",
+        base_url="http://model.example/v1",
+        timeout_seconds=45,
+        max_retries=2,
+        stream=True,
+    )
+    assert streaming.stream is True
 
 
 async def test_runtime_broadcasts_speech_but_keeps_decision_private() -> None:
@@ -97,9 +136,13 @@ async def test_runtime_broadcasts_speech_but_keeps_decision_private() -> None:
     assert result == Choice(target="曹操")
     assert [activity.kind for activity in activities] == [
         "turn_started",
-        "speech",
+        "speech_delta",
+        "speech_delta",
+        "speech_completed",
         "turn_started",
-        "speech",
+        "speech_delta",
+        "speech_delta",
+        "speech_completed",
     ]
     assert len(runtime._sessions["game-1"]["曹操"].observed) == before
     assert any(
@@ -137,5 +180,68 @@ async def test_runtime_continues_discussion_when_one_player_fails() -> None:
         )
     ]
 
-    speakers = [activity.player for activity in activities if activity.kind == "speech"]
+    speakers = [
+        activity.player
+        for activity in activities
+        if activity.kind == "speech_completed"
+    ]
     assert speakers == ["曹操"]
+
+
+async def test_runtime_falls_back_only_when_streaming_is_unsupported() -> None:
+    runtime = AgentScopeRuntime(
+        model=FakeModel(),
+        decision_model=FakeModel(),
+        max_model_concurrency=1,
+        timeout_seconds=1,
+        max_retries=0,
+        agent_factory=lambda name, prompt, model: UnsupportedStreamAgent(
+            name, prompt, model
+        ),
+    )
+    game = GameState(
+        id="fallback",
+        player_count=1,
+        players=[GamePlayer("刘备", "刘备", "村民")],
+    )
+    await runtime.setup(game, {"刘备": "提示"})
+
+    activities = [
+        activity async for activity in runtime.discuss("fallback", ["刘备"], "讨论", 1)
+    ]
+
+    assert runtime._stream_supported is False
+    assert [activity.kind for activity in activities] == [
+        "turn_started",
+        "speech_completed",
+    ]
+    assert activities[-1].stream_trace == ()
+
+
+async def test_runtime_does_not_regenerate_after_partial_stream_failure() -> None:
+    runtime = AgentScopeRuntime(
+        model=FakeModel(),
+        max_model_concurrency=1,
+        timeout_seconds=1,
+        max_retries=0,
+        agent_factory=lambda name, prompt, model: PartialStreamAgent(
+            name, prompt, model
+        ),
+    )
+    game = GameState(
+        id="partial",
+        player_count=1,
+        players=[GamePlayer("刘备", "刘备", "村民")],
+    )
+    await runtime.setup(game, {"刘备": "提示"})
+
+    activities = [
+        activity async for activity in runtime.discuss("partial", ["刘备"], "讨论", 1)
+    ]
+
+    assert [activity.kind for activity in activities] == [
+        "turn_started",
+        "speech_delta",
+        "speech_failed",
+    ]
+    assert activities[-1].content == "半句"

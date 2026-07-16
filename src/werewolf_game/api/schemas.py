@@ -106,6 +106,23 @@ class SpeakerPayload(ApiModel):
 
 class SpeechPayload(SpeakerPayload):
     content: str
+    stream_started_at: str | None = None
+    stream_trace: list[SpeechTraceChunkResponse] = Field(default_factory=list)
+
+
+class SpeechTraceChunkResponse(BaseModel):
+    offset_ms: int = Field(ge=0)
+    delta: str
+
+
+class SpeechStreamFrameResponse(BaseModel):
+    game_id: str
+    type: Literal["speech_delta", "speech_failed"]
+    phase: PhaseValue
+    visibility: VisibilityValue
+    recipients: list[str]
+    payload: dict[str, Any]
+    created_at: str
 
 
 class ModeratedSpeechPayload(ApiModel):

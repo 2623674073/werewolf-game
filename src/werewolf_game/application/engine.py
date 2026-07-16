@@ -377,11 +377,47 @@ class GameEngine:
                 "discussion_round": activity.discussion_round,
                 "discussion_kind": discussion_kind,
             }
-            if activity.kind == "speech":
+            if activity.kind == "speech_delta":
+                payload.update(
+                    content_so_far=activity.content or "",
+                    delta=activity.delta or "",
+                    offset_ms=activity.offset_ms or 0,
+                )
+                await self.events.emit_transient(
+                    game,
+                    "speech_delta",
+                    payload,
+                    visibility=visibility,
+                    recipients=recipient_names,
+                )
+                continue
+            if activity.kind == "speech_failed":
+                payload["content_so_far"] = activity.content or ""
+                await self.events.emit_transient(
+                    game,
+                    "speech_failed",
+                    payload,
+                    visibility=visibility,
+                    recipients=recipient_names,
+                )
+                continue
+            if activity.kind == "speech_completed":
                 payload["content"] = activity.content or ""
+                if activity.stream_started_at is not None:
+                    payload["stream_started_at"] = (
+                        activity.stream_started_at.isoformat()
+                    )
+                if activity.stream_trace:
+                    payload["stream_trace"] = [
+                        {"offset_ms": item.offset_ms, "delta": item.delta}
+                        for item in activity.stream_trace
+                    ]
+                event_type = "speech"
+            else:
+                event_type = "speaker_turn_started"
             await self.events.emit(
                 game,
-                "speaker_turn_started" if activity.kind == "turn_started" else "speech",
+                event_type,
                 payload,
                 visibility=visibility,
                 recipients=recipient_names,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Literal, Protocol
 
 from pydantic import BaseModel
@@ -12,10 +13,25 @@ from werewolf_game.domain.reviews import GameDossier, GameReview, GameReviewResu
 
 @dataclass(slots=True, frozen=True)
 class DiscussionActivity:
-    kind: Literal["turn_started", "speech"]
+    kind: Literal[
+        "turn_started",
+        "speech_delta",
+        "speech_completed",
+        "speech_failed",
+    ]
     player: str
     discussion_round: int
     content: str | None = None
+    delta: str | None = None
+    offset_ms: int | None = None
+    stream_started_at: datetime | None = None
+    stream_trace: tuple[SpeechTraceChunk, ...] = ()
+
+
+@dataclass(slots=True, frozen=True)
+class SpeechTraceChunk:
+    offset_ms: int
+    delta: str
 
 
 class AgentRuntime(Protocol):

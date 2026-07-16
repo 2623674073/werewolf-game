@@ -517,8 +517,19 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
-              }
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/EventResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SpeechStreamFrameResponse"
+                    }
+                  ],
+                  "title": "Response 200 Stream Events Api V1 Games  Game Id  Stream Get"
+                }
+              },
+              "text/event-stream": {}
             }
           },
           "422": {
@@ -1378,12 +1389,96 @@
           "content": {
             "type": "string",
             "title": "Content"
+          },
+          "stream_started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stream Started At"
+          },
+          "stream_trace": {
+            "items": {
+              "$ref": "#/components/schemas/SpeechTraceChunkResponse"
+            },
+            "type": "array",
+            "title": "Stream Trace"
           }
         },
         "additionalProperties": true,
         "type": "object",
         "required": ["player", "round", "discussion_round", "discussion_kind", "content"],
         "title": "SpeechPayload"
+      },
+      "SpeechStreamFrameResponse": {
+        "properties": {
+          "game_id": {
+            "type": "string",
+            "title": "Game Id"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["speech_delta", "speech_failed"],
+            "title": "Type"
+          },
+          "phase": {
+            "type": "string",
+            "enum": ["setup", "night", "day", "finished"],
+            "title": "Phase"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["public", "private", "internal"],
+            "title": "Visibility"
+          },
+          "recipients": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Recipients"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Payload"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "game_id",
+          "type",
+          "phase",
+          "visibility",
+          "recipients",
+          "payload",
+          "created_at"
+        ],
+        "title": "SpeechStreamFrameResponse"
+      },
+      "SpeechTraceChunkResponse": {
+        "properties": {
+          "offset_ms": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Offset Ms"
+          },
+          "delta": {
+            "type": "string",
+            "title": "Delta"
+          }
+        },
+        "type": "object",
+        "required": ["offset_ms", "delta"],
+        "title": "SpeechTraceChunkResponse"
       },
       "TurningPoint": {
         "properties": {

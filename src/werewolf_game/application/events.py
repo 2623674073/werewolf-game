@@ -3,22 +3,38 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncGenerator, Sequence
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
 from werewolf_game.application.ports import GameRepository
-from werewolf_game.domain.models import GameEvent, GameState, Visibility
+from werewolf_game.domain.models import GameEvent, GameState, Phase, Visibility
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(slots=True, frozen=True)
+class TransientGameEvent:
+    game_id: str
+    type: str
+    phase: Phase
+    visibility: Visibility
+    recipients: tuple[str, ...]
+    payload: dict[str, Any]
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+
+StreamEvent = GameEvent | TransientGameEvent
 
 
 class EventBroker:
     def __init__(self, queue_size: int = 100) -> None:
         self._queue_size = queue_size
         self._subscribers: dict[
-            str, list[tuple[bool, asyncio.Queue[GameEvent | None]]]
+            str, list[tuple[bool, asyncio.Queue[StreamEvent | None]]]
         ] = {}
 
-    async def publish(self, event: GameEvent) -> None:
+    async def publish(self, event: StreamEvent) -> None:
         subscribers = list(self._subscribers.get(event.game_id, []))
         for include_private, queue in subscribers:
             if not include_private and event.visibility is not Visibility.PUBLIC:
@@ -39,8 +55,8 @@ class EventBroker:
 
     async def subscribe(
         self, game_id: str, *, include_private: bool
-    ) -> AsyncGenerator[GameEvent, None]:
-        queue: asyncio.Queue[GameEvent | None] = asyncio.Queue(self._queue_size)
+    ) -> AsyncGenerator[StreamEvent, None]:
+        queue: asyncio.Queue[StreamEvent | None] = asyncio.Queue(self._queue_size)
         item = (include_private, queue)
         self._subscribers.setdefault(game_id, []).append(item)
         try:
@@ -52,7 +68,7 @@ class EventBroker:
         finally:
             self._remove(game_id, queue)
 
-    def _remove(self, game_id: str, queue: asyncio.Queue[GameEvent | None]) -> None:
+    def _remove(self, game_id: str, queue: asyncio.Queue[StreamEvent | None]) -> None:
         current = self._subscribers.get(game_id, [])
         self._subscribers[game_id] = [item for item in current if item[1] is not queue]
         if not self._subscribers[game_id]:
@@ -94,3 +110,23 @@ class EventCoordinator:
             },
         )
         return stored
+
+    async def emit_transient(
+        self,
+        game: GameState,
+        event_type: str,
+        payload: dict[str, Any],
+        *,
+        visibility: Visibility = Visibility.PUBLIC,
+        recipients: Sequence[str] = (),
+    ) -> TransientGameEvent:
+        event = TransientGameEvent(
+            game_id=game.id,
+            type=event_type,
+            phase=game.phase,
+            visibility=visibility,
+            recipients=tuple(recipients),
+            payload=payload,
+        )
+        await self.broker.publish(event)
+        return event

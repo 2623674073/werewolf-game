@@ -11,6 +11,18 @@ export type GameEvent = Omit<components['schemas']['EventResponse'], 'payload'> 
   payload: Record<string, unknown>
 }
 
+export interface SpeechStreamFrame {
+  game_id: string
+  type: 'speech_delta' | 'speech_failed'
+  phase: GameEvent['phase']
+  visibility: GameEvent['visibility']
+  recipients: string[]
+  payload: Record<string, unknown>
+  created_at: string
+}
+
+export type StreamMessage = GameEvent | SpeechStreamFrame
+
 export interface ApiErrorBody {
   error?: { code?: string; message?: string; request_id?: string }
 }

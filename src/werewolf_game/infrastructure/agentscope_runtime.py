@@ -3,16 +3,19 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncIterator, Callable, Sequence
+from datetime import UTC, datetime
+from time import monotonic
 from typing import Any
 
 from agentscope.agent import Agent
 from agentscope.credential import OpenAICredential
+from agentscope.event import TextBlockDeltaEvent
 from agentscope.formatter import OpenAIMultiAgentFormatter
 from agentscope.message import AssistantMsg, SystemMsg, UserMsg
 from agentscope.model import OpenAIChatModel
 from pydantic import BaseModel, SecretStr
 
-from werewolf_game.application.ports import DiscussionActivity
+from werewolf_game.application.ports import DiscussionActivity, SpeechTraceChunk
 from werewolf_game.domain.models import GameState
 
 AgentFactory = Callable[[str, str, Any], Any]
@@ -25,6 +28,8 @@ def build_openai_compatible_model(
     base_url: str,
     timeout_seconds: float,
     max_retries: int,
+    *,
+    stream: bool = False,
 ) -> OpenAIChatModel:
     return OpenAIChatModel(
         credential=OpenAICredential(
@@ -33,7 +38,7 @@ def build_openai_compatible_model(
         ),
         model=model_name,
         parameters=OpenAIChatModel.Parameters(thinking_enable=False),
-        stream=False,
+        stream=stream,
         max_retries=max_retries,
         formatter=OpenAIMultiAgentFormatter(),
         client_kwargs={"timeout": timeout_seconds},
@@ -45,18 +50,21 @@ class AgentScopeRuntime:
         self,
         *,
         model: Any,
+        decision_model: Any | None = None,
         max_model_concurrency: int,
         timeout_seconds: float,
         max_retries: int,
         agent_factory: AgentFactory | None = None,
     ) -> None:
         self.model = model
+        self.decision_model = decision_model or model
         self.timeout_seconds = timeout_seconds
         self.max_retries = max_retries
         self._semaphore = asyncio.Semaphore(max_model_concurrency)
         self._agent_factory = agent_factory or self._create_agent
         self._sessions: dict[str, dict[str, Any]] = {}
         self._prompts: dict[str, dict[str, str]] = {}
+        self._stream_supported: bool | None = None
 
     @staticmethod
     def _create_agent(name: str, prompt: str, model: Any) -> Agent:
@@ -98,28 +106,110 @@ class AgentScopeRuntime:
                     discussion_round=discussion_round,
                 )
                 prompt = UserMsg(name="游戏主持人", content=f"{name}，请发言。")
+                if self._stream_supported is False:
+                    reply = await self._fallback_reply(agent, prompt)
+                    if reply is None:
+                        yield DiscussionActivity(
+                            kind="speech_failed",
+                            player=name,
+                            discussion_round=discussion_round,
+                        )
+                        continue
+                    content = reply.get_text_content()
+                    yield DiscussionActivity(
+                        kind="speech_completed",
+                        player=name,
+                        discussion_round=discussion_round,
+                        content=content,
+                    )
+                    await self._broadcast_reply(agents, name, reply)
+                    continue
+
+                content = ""
+                trace: list[SpeechTraceChunk] = []
+                started_at: datetime | None = None
+                started_clock: float | None = None
                 try:
-                    reply = await self._with_retry(agent.reply, prompt)
-                except Exception:
+                    async with self._semaphore:
+                        async with asyncio.timeout(self.timeout_seconds):
+                            async for event in agent.reply_stream(prompt):
+                                if not isinstance(event, TextBlockDeltaEvent):
+                                    continue
+                                if not event.delta:
+                                    continue
+                                if started_at is None:
+                                    started_at = datetime.now(UTC)
+                                    started_clock = monotonic()
+                                content += event.delta
+                                offset_ms = round(
+                                    (monotonic() - (started_clock or monotonic()))
+                                    * 1000
+                                )
+                                if trace and offset_ms - trace[-1].offset_ms < 40:
+                                    previous = trace[-1]
+                                    trace[-1] = SpeechTraceChunk(
+                                        offset_ms=offset_ms,
+                                        delta=previous.delta + event.delta,
+                                    )
+                                else:
+                                    trace.append(
+                                        SpeechTraceChunk(
+                                            offset_ms=offset_ms,
+                                            delta=event.delta,
+                                        )
+                                    )
+                                yield DiscussionActivity(
+                                    kind="speech_delta",
+                                    player=name,
+                                    discussion_round=discussion_round,
+                                    content=content,
+                                    delta=event.delta,
+                                    offset_ms=offset_ms,
+                                    stream_started_at=started_at,
+                                )
+                    self._stream_supported = True
+                except Exception as exc:
+                    if not content and self._is_stream_unsupported(exc):
+                        self._stream_supported = False
+                        reply = await self._fallback_reply(agent, prompt)
+                        if reply is not None:
+                            content = reply.get_text_content()
+                            yield DiscussionActivity(
+                                kind="speech_completed",
+                                player=name,
+                                discussion_round=discussion_round,
+                                content=content,
+                            )
+                            await self._broadcast_reply(agents, name, reply)
+                            continue
                     logger.warning(
                         "player discussion failed",
                         extra={"game_id": game_id, "event_type": "discussion_failed"},
                     )
+                    yield DiscussionActivity(
+                        kind="speech_failed",
+                        player=name,
+                        discussion_round=discussion_round,
+                        content=content,
+                    )
                     continue
+                if not content:
+                    yield DiscussionActivity(
+                        kind="speech_failed",
+                        player=name,
+                        discussion_round=discussion_round,
+                    )
+                    continue
+                reply = AssistantMsg(name=name, content=content)
                 yield DiscussionActivity(
-                    kind="speech",
+                    kind="speech_completed",
                     player=name,
                     discussion_round=discussion_round,
-                    content=reply.get_text_content(),
+                    content=content,
+                    stream_started_at=started_at,
+                    stream_trace=tuple(trace),
                 )
-                await asyncio.gather(
-                    *(
-                        recipient.observe(reply)
-                        for other, recipient in agents.items()
-                        if other != name
-                    ),
-                    return_exceptions=True,
-                )
+                await self._broadcast_reply(agents, name, reply)
 
     async def decide(
         self,
@@ -137,7 +227,7 @@ class AgentScopeRuntime:
         ]
         try:
             response = await self._with_retry(
-                agent.model.generate_structured_output,
+                self.decision_model.generate_structured_output,
                 messages,
                 structured_model=schema,
             )
@@ -175,3 +265,35 @@ class AgentScopeRuntime:
                     await asyncio.sleep(0.25 * (2**attempt))
         assert last_error is not None
         raise last_error
+
+    async def _fallback_reply(self, agent: Any, prompt: Any) -> Any | None:
+        original_model = agent.model
+        agent.model = self.decision_model
+        try:
+            return await self._with_retry(agent.reply, prompt)
+        except Exception:
+            return None
+        finally:
+            agent.model = original_model
+
+    @staticmethod
+    async def _broadcast_reply(
+        agents: dict[str, Any], speaker: str, reply: Any
+    ) -> None:
+        await asyncio.gather(
+            *(
+                recipient.observe(reply)
+                for other, recipient in agents.items()
+                if other != speaker
+            ),
+            return_exceptions=True,
+        )
+
+    @staticmethod
+    def _is_stream_unsupported(exc: Exception) -> bool:
+        message = str(exc).lower()
+        status_code = getattr(exc, "status_code", None)
+        return status_code in {400, 404, 405, 422} and any(
+            marker in message
+            for marker in ("stream", "streaming", "unsupported", "not support")
+        )

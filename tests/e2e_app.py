@@ -36,14 +36,21 @@ class DemoEngine:
         self.events = events
 
     async def run(self, game: GameState) -> None:
-        game.players = [
+        roster = [
             GamePlayer("刘备", "刘备", "预言家"),
             GamePlayer("关羽", "关羽", "村民"),
             GamePlayer("张飞", "张飞", "村民"),
             GamePlayer("诸葛亮", "诸葛亮", "女巫"),
             GamePlayer("赵云", "赵云", "村民"),
             GamePlayer("曹操", "曹操", "狼人"),
+            GamePlayer("孙权", "孙权", "狼人"),
+            GamePlayer("司马懿", "司马懿", "狼人"),
+            GamePlayer("周瑜", "周瑜", "猎人"),
+            GamePlayer("吕布", "吕布", "村民"),
+            GamePlayer("貂蝉", "貂蝉", "村民"),
+            GamePlayer("陆逊", "陆逊", "村民"),
         ]
+        game.players = roster[: game.player_count]
         game.status = GameStatus.RUNNING
         game.phase = Phase.SETUP
         game.started_at = datetime.now(UTC)
@@ -109,7 +116,7 @@ class DemoEngine:
             visibility=Visibility.PRIVATE,
             recipients=["刘备"],
         )
-        game.players[-1].eliminate()
+        next(player for player in game.players if player.name == "曹操").eliminate()
         await self.repository.save_game(game)
         await self.events.emit(
             game,

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 
 import type { GameEvent } from '../api/types'
-import { eventDelay, usePlaybackStore } from './playback'
+import { recordedDelay, usePlaybackStore } from './playback'
 
 function event(
   seq: number,
@@ -16,21 +16,22 @@ function event(
     visibility: 'public',
     recipients: [],
     payload,
-    created_at: '',
+    created_at: `2026-01-01T00:00:0${seq}Z`,
   } as GameEvent
 }
 
-describe('playback store', () => {
-  beforeEach(() =>
-    usePlaybackStore.setState({
-      streamKey: '',
-      events: [],
-      cursor: -1,
-      playing: true,
-      speed: 1,
-    }),
-  )
+beforeEach(() =>
+  usePlaybackStore.setState({
+    streamKey: '',
+    events: [],
+    cursor: -1,
+    playing: true,
+    speed: 1,
+    draft: null,
+  }),
+)
 
+describe('playback store', () => {
   it('initializes per view, sorts and deduplicates events', () => {
     const store = usePlaybackStore.getState()
     store.initialize('g', 'public')
@@ -59,11 +60,50 @@ describe('playback store', () => {
   })
 })
 
-describe('eventDelay', () => {
-  it('uses bounded speech duration and scales by speed', () => {
-    expect(eventDelay(undefined, 1)).toBe(250)
-    expect(eventDelay(event(1), 1)).toBe(850)
-    expect(eventDelay(event(1, 'speech', { content: '短句' }), 2)).toBe(600)
-    expect(eventDelay(event(1, 'speech', { content: '字'.repeat(500) }), 1)).toBe(6000)
+describe('recordedDelay', () => {
+  it('uses the original event interval and only scales historical playback', () => {
+    expect(recordedDelay(undefined, event(1), 1)).toBe(0)
+    expect(recordedDelay(event(1), event(2), 1)).toBe(1000)
+    expect(recordedDelay(event(1), event(2), 2)).toBe(500)
+  })
+
+  it('keeps transient speech outside the durable event list', () => {
+    const store = usePlaybackStore.getState()
+    store.applyStreamFrame({
+      game_id: 'g',
+      type: 'speech_delta',
+      phase: 'day',
+      visibility: 'public',
+      recipients: [],
+      payload: { player: '刘备', content_so_far: '曹操可疑', offset_ms: 80 },
+      created_at: '',
+    })
+    expect(usePlaybackStore.getState().draft?.content).toBe('曹操可疑')
+    expect(usePlaybackStore.getState().events).toEqual([])
+
+    store.append(event(1, 'speech', { player: '刘备', content: '曹操可疑' }))
+    expect(usePlaybackStore.getState()).toMatchObject({ cursor: 0, draft: null })
+  })
+
+  it('freezes the visible draft while paused as durable events continue arriving', () => {
+    const store = usePlaybackStore.getState()
+    store.append(event(1, 'speaker_turn_started', { player: '刘备' }))
+    store.applyStreamFrame({
+      game_id: 'g',
+      type: 'speech_delta',
+      phase: 'day',
+      visibility: 'public',
+      recipients: [],
+      payload: { player: '刘备', content_so_far: '半句', offset_ms: 100 },
+      created_at: '',
+    })
+    store.setPlaying(false)
+    store.append(event(2, 'speech', { player: '刘备', content: '完整发言' }))
+
+    expect(usePlaybackStore.getState()).toMatchObject({
+      cursor: 0,
+      playing: false,
+      draft: { content: '半句', offsetMs: 100 },
+    })
   })
 })

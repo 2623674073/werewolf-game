@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable
 
+from werewolf_game.application.events import StreamEvent
 from werewolf_game.domain.models import GameEvent, Visibility
 
 
@@ -58,8 +59,10 @@ class ConsolePresenter:
     def __init__(self, printer: Callable[[str], None] = print) -> None:
         self.printer = printer
 
-    async def consume(self, events: AsyncIterator[GameEvent]) -> None:
+    async def consume(self, events: AsyncIterator[StreamEvent]) -> None:
         async for event in events:
+            if not isinstance(event, GameEvent):
+                continue
             line = format_event(event)
             if line is not None:
                 self.printer(line)

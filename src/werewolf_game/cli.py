@@ -86,7 +86,15 @@ async def _run_game(
     database = Database(settings.database_url)
     await database.create_schema()
     repository = SqliteGameRepository(database.session_factory)
-    model = build_openai_compatible_model(
+    dialogue_model = build_openai_compatible_model(
+        api_key=settings.llm_api_key.get_secret_value(),
+        model_name=settings.llm_model_id,
+        base_url=settings.llm_base_url,
+        timeout_seconds=settings.llm_timeout,
+        max_retries=settings.model_max_retries,
+        stream=True,
+    )
+    decision_model = build_openai_compatible_model(
         api_key=settings.llm_api_key.get_secret_value(),
         model_name=settings.llm_model_id,
         base_url=settings.llm_base_url,
@@ -94,7 +102,8 @@ async def _run_game(
         max_retries=settings.model_max_retries,
     )
     runtime = AgentScopeRuntime(
-        model=model,
+        model=dialogue_model,
+        decision_model=decision_model,
         max_model_concurrency=settings.max_model_concurrency,
         timeout_seconds=settings.llm_timeout,
         max_retries=0,

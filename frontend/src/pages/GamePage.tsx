@@ -38,7 +38,7 @@ export function GamePage() {
   })
   const connection = useGameStream(gameId, view)
   usePlaybackClock()
-  const { events, cursor, setCursor } = usePlaybackStore()
+  const { events, cursor, draft, setCursor } = usePlaybackStore()
   const projection = useMemo(
     () => (gameQuery.data ? projectGame(gameQuery.data, events, cursor) : null),
     [cursor, events, gameQuery.data],
@@ -169,6 +169,7 @@ export function GamePage() {
           projection={projection}
           phase={game.phase}
           round={game.round_number}
+          draft={draft}
         />
         <EventTimeline events={projection.visibleEvents} />
       </div>

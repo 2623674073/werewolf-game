@@ -24,6 +24,7 @@ from werewolf_game.api.schemas import (
     GameResponse,
     GameReviewResponse,
     SessionResponse,
+    SpeechStreamFrameResponse,
 )
 from werewolf_game.application.engine import GameEngine
 from werewolf_game.application.errors import (
@@ -32,7 +33,12 @@ from werewolf_game.application.errors import (
     ConflictError,
     NotFoundError,
 )
-from werewolf_game.application.events import EventBroker, EventCoordinator
+from werewolf_game.application.events import (
+    EventBroker,
+    EventCoordinator,
+    StreamEvent,
+    TransientGameEvent,
+)
 from werewolf_game.application.locks import GameOperationLocks
 from werewolf_game.application.review_service import GameReviewService
 from werewolf_game.application.service import GameService
@@ -76,7 +82,15 @@ def build_components(settings: Settings | None = None) -> AppComponents:
     database = Database(settings.database_url)
     repository = SqliteGameRepository(database.session_factory)
     broker = EventBroker()
-    model = build_openai_compatible_model(
+    dialogue_model = build_openai_compatible_model(
+        api_key=settings.llm_api_key.get_secret_value(),
+        model_name=settings.llm_model_id,
+        base_url=settings.llm_base_url,
+        timeout_seconds=settings.llm_timeout,
+        max_retries=settings.model_max_retries,
+        stream=True,
+    )
+    decision_model = build_openai_compatible_model(
         api_key=settings.llm_api_key.get_secret_value(),
         model_name=settings.llm_model_id,
         base_url=settings.llm_base_url,
@@ -84,7 +98,8 @@ def build_components(settings: Settings | None = None) -> AppComponents:
         max_retries=settings.model_max_retries,
     )
     runtime = AgentScopeRuntime(
-        model=model,
+        model=dialogue_model,
+        decision_model=decision_model,
         max_model_concurrency=settings.max_model_concurrency,
         timeout_seconds=settings.llm_timeout,
         max_retries=0,
@@ -308,7 +323,15 @@ def create_app(components: AppComponents | None = None) -> FastAPI:
             raise ApiError(503, "review_service_unavailable", "复盘服务不可用")
         return _review_response(await components.review_service.get_review(game_id))
 
-    @router.get("/games/{game_id}/stream")
+    @router.get(
+        "/games/{game_id}/stream",
+        responses={
+            200: {
+                "model": EventResponse | SpeechStreamFrameResponse,
+                "content": {"text/event-stream": {}},
+            }
+        },
+    )
     async def stream_events(
         game_id: str,
         view: Literal["public", "god"] = "public",
@@ -353,7 +376,7 @@ async def _event_stream(
     include_private: bool,
 ) -> AsyncIterator[str]:
     live = components.broker.subscribe(game.id, include_private=include_private)
-    pending: asyncio.Future[GameEvent] = asyncio.ensure_future(anext(live))
+    pending: asyncio.Future[StreamEvent] = asyncio.ensure_future(anext(live))
     await asyncio.sleep(0)
     last_seq = after_seq
     try:
@@ -386,7 +409,7 @@ async def _event_stream(
             return
         while True:
             try:
-                event = await asyncio.wait_for(asyncio.shield(pending), timeout=15)
+                live_event = await asyncio.wait_for(asyncio.shield(pending), timeout=15)
             except TimeoutError:
                 yield ": keep-alive\n\n"
                 continue
@@ -399,9 +422,11 @@ async def _event_stream(
                         last_seq = trailing_event.seq
                         yield _sse(trailing_event)
                 return
-            if event.seq > last_seq:
-                last_seq = event.seq
-                yield _sse(event)
+            if isinstance(live_event, TransientGameEvent):
+                yield _sse_transient(live_event)
+            elif live_event.seq > last_seq:
+                last_seq = live_event.seq
+                yield _sse(live_event)
             pending = asyncio.ensure_future(anext(live))
     finally:
         pending.cancel()
@@ -417,6 +442,23 @@ def _sse(event: GameEvent) -> str:
         separators=(",", ":"),
     )
     return f"id: {event.seq}\nevent: {event.type}\ndata: {data}\n\n"
+
+
+def _sse_transient(event: TransientGameEvent) -> str:
+    data = json.dumps(
+        {
+            "game_id": event.game_id,
+            "type": event.type,
+            "phase": event.phase.value,
+            "visibility": event.visibility.value,
+            "recipients": list(event.recipients),
+            "payload": event.payload,
+            "created_at": event.created_at.isoformat(),
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    return f"event: {event.type}\ndata: {data}\n\n"
 
 
 def _game_response(game: GameState, *, god_view: bool) -> GameResponse:

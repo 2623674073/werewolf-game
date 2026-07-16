@@ -50,12 +50,24 @@ describe('projectGame', () => {
     const speaking = projectGame(game, events, 2)
     expect(speaking.alive.get('刘备')).toBe(true)
     expect(speaking.currentSpeaker).toBe('刘备')
+    expect(speaking.speechPlayer).toBe('刘备')
     expect(speaking.currentSpeech).toBe('曹操可疑')
 
     const finished = projectGame(game, events, 4)
     expect(finished.alive.get('刘备')).toBe(false)
     expect(finished.roles.get('曹操')).toBe('狼人')
     expect(finished.visibleEvents).toHaveLength(5)
+  })
+
+  it('keeps the previous completed speech while the next player is thinking', () => {
+    const events = [
+      event(1, 'speech', { player: '刘备', content: '先听我说' }),
+      event(2, 'speaker_turn_started', { player: '曹操' }),
+    ]
+    const projection = projectGame(game, events, 1)
+    expect(projection.currentSpeaker).toBe('曹操')
+    expect(projection.speechPlayer).toBe('刘备')
+    expect(projection.currentSpeech).toBe('先听我说')
   })
 
   it('uses snapshot state when history has no start event and applies night deaths', () => {

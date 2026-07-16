@@ -10,7 +10,7 @@ from httpx import ASGITransport, AsyncClient
 import werewolf_game.api.app as api_app
 from werewolf_game.api.app import AppComponents, create_app
 from werewolf_game.application.errors import ConflictError
-from werewolf_game.application.events import EventBroker
+from werewolf_game.application.events import EventBroker, TransientGameEvent
 from werewolf_game.application.locks import GameOperationLocks
 from werewolf_game.application.review_service import GameReviewService
 from werewolf_game.application.service import GameService
@@ -38,7 +38,10 @@ class InstantEngine:
 
 
 class FakeHistorian:
+    last_dossier: GameDossier | None = None
+
     async def generate_review(self, dossier: GameDossier) -> GameReviewResult:
+        type(self).last_dossier = dossier
         evidence = dossier.events[0].seq
         return GameReviewResult.model_validate(
             {
@@ -236,6 +239,46 @@ async def test_running_sse_emits_comment_heartbeat_without_persisting_event(
     await database.dispose()
 
 
+async def test_running_sse_emits_transient_speech_without_event_id(
+    tmp_path: Path,
+) -> None:
+    _, database, repository = await make_client(tmp_path)
+    game = GameState(
+        id="running-stream",
+        player_count=6,
+        status=GameStatus.RUNNING,
+        phase=Phase.DAY,
+    )
+    await repository.create_game(game)
+    broker = EventBroker()
+    components = SimpleNamespace(repository=repository, broker=broker)
+    stream = api_app._event_stream(components, game, 0, False)
+    frame_task = asyncio.create_task(anext(stream))
+    for _ in range(20):
+        if broker._subscribers.get(game.id):
+            break
+        await asyncio.sleep(0.01)
+    await broker.publish(
+        TransientGameEvent(
+            game_id=game.id,
+            type="speech_delta",
+            phase=Phase.DAY,
+            visibility=Visibility.PUBLIC,
+            recipients=(),
+            payload={"player": "刘备", "content_so_far": "曹操可疑"},
+        )
+    )
+    try:
+        frame = await asyncio.wait_for(frame_task, 0.5)
+        assert frame.startswith("event: speech_delta\n")
+        assert "id:" not in frame
+        assert "曹操可疑" in frame
+        assert await repository.list_events(game.id, 0, True) == []
+    finally:
+        await stream.aclose()
+        await database.dispose()
+
+
 async def test_validation_errors_use_stable_error_shape(tmp_path: Path) -> None:
     client, database, _ = await make_client(tmp_path)
     async with client:
@@ -315,6 +358,7 @@ async def test_openapi_exposes_typed_session_game_and_event_contracts(
             "GameResponse",
             "EventResponse",
             "GameReviewResponse",
+            "SpeechStreamFrameResponse",
         } <= set(components)
         event_type = components["EventResponse"]["properties"]["type"]
         assert "speech" in event_type["enum"]
@@ -464,15 +508,20 @@ async def test_completed_game_can_generate_and_reuse_historian_review(
         ],
     )
     await repository.create_game(game)
+    FakeHistorian.last_dossier = None
     await repository.append_event(
         GameEvent(
             game.id,
             0,
-            "game_finished",
+            "speech",
             Phase.FINISHED,
             Visibility.PUBLIC,
             (),
-            {"winner": "villagers"},
+            {
+                "player": "刘备",
+                "content": "曹操可疑",
+                "stream_trace": [{"offset_ms": 0, "delta": "曹操可疑"}],
+            },
         )
     )
 
@@ -493,6 +542,9 @@ async def test_completed_game_can_generate_and_reuse_historian_review(
             if completed.json()["status"] == "completed":
                 break
             await asyncio.sleep(0.01)
+
+        assert FakeHistorian.last_dossier is not None
+        assert "stream_trace" not in FakeHistorian.last_dossier.events[0].payload
         assert completed.json()["result"]["mvp"] == "刘备"
         assert completed.json()["result"]["player_reviews"][0]["score"] == 8.0
         reused = await client.post(

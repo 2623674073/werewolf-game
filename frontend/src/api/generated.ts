@@ -514,8 +514,47 @@ export interface components {
       discussion_kind: string
       /** Content */
       content: string
+      /** Stream Started At */
+      stream_started_at?: string | null
+      /** Stream Trace */
+      stream_trace?: components['schemas']['SpeechTraceChunkResponse'][]
     } & {
       [key: string]: unknown
+    }
+    /** SpeechStreamFrameResponse */
+    SpeechStreamFrameResponse: {
+      /** Game Id */
+      game_id: string
+      /**
+       * Type
+       * @enum {string}
+       */
+      type: 'speech_delta' | 'speech_failed'
+      /**
+       * Phase
+       * @enum {string}
+       */
+      phase: 'setup' | 'night' | 'day' | 'finished'
+      /**
+       * Visibility
+       * @enum {string}
+       */
+      visibility: 'public' | 'private' | 'internal'
+      /** Recipients */
+      recipients: string[]
+      /** Payload */
+      payload: {
+        [key: string]: unknown
+      }
+      /** Created At */
+      created_at: string
+    }
+    /** SpeechTraceChunkResponse */
+    SpeechTraceChunkResponse: {
+      /** Offset Ms */
+      offset_ms: number
+      /** Delta */
+      delta: string
     }
     /** TurningPoint */
     TurningPoint: {
@@ -911,7 +950,10 @@ export interface operations {
           [name: string]: unknown
         }
         content: {
-          'application/json': unknown
+          'application/json':
+            | components['schemas']['EventResponse']
+            | components['schemas']['SpeechStreamFrameResponse']
+          'text/event-stream': unknown
         }
       }
       /** @description Validation Error */

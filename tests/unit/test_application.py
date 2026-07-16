@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import random
 from collections.abc import AsyncIterator, Sequence
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -10,10 +11,22 @@ from pydantic import BaseModel
 
 from werewolf_game.application.engine import GameEngine
 from werewolf_game.application.errors import CapacityError, ConflictError, NotFoundError
-from werewolf_game.application.events import EventBroker, EventCoordinator
-from werewolf_game.application.ports import DiscussionActivity
+from werewolf_game.application.events import (
+    EventBroker,
+    EventCoordinator,
+    StreamEvent,
+    TransientGameEvent,
+)
+from werewolf_game.application.ports import DiscussionActivity, SpeechTraceChunk
 from werewolf_game.application.service import GameService
-from werewolf_game.domain.models import GameEvent, GameState, GameStatus, Visibility
+from werewolf_game.domain.models import (
+    GameEvent,
+    GamePlayer,
+    GameState,
+    GameStatus,
+    Phase,
+    Visibility,
+)
 from werewolf_game.domain.reviews import GameReview
 
 
@@ -88,7 +101,7 @@ class FakeRuntime:
     ) -> AsyncIterator[DiscussionActivity]:
         for name in players:
             yield DiscussionActivity("turn_started", name, 1)
-            yield DiscussionActivity("speech", name, 1, f"{name}发言")
+            yield DiscussionActivity("speech_completed", name, 1, f"{name}发言")
 
     async def decide(
         self, game_id: str, player: str, prompt: str, schema: type[BaseModel]
@@ -122,11 +135,39 @@ class FakeRuntime:
         self.closed.append(game_id)
 
 
+class StreamingRuntime(FakeRuntime):
+    async def discuss(
+        self, game_id: str, players: Sequence[str], announcement: str, rounds: int
+    ) -> AsyncIterator[DiscussionActivity]:
+        started_at = datetime.now(UTC)
+        yield DiscussionActivity("turn_started", players[0], 1)
+        yield DiscussionActivity(
+            "speech_delta",
+            players[0],
+            1,
+            content="曹操",
+            delta="曹操",
+            offset_ms=0,
+            stream_started_at=started_at,
+        )
+        yield DiscussionActivity(
+            "speech_completed",
+            players[0],
+            1,
+            content="曹操可疑",
+            stream_started_at=started_at,
+            stream_trace=(
+                SpeechTraceChunk(0, "曹操"),
+                SpeechTraceChunk(120, "可疑"),
+            ),
+        )
+
+
 def _literal_values(annotation: Any) -> tuple[str, ...]:
     return tuple(annotation.__args__)
 
 
-async def _next(stream: AsyncIterator[GameEvent]) -> GameEvent:
+async def _next(stream: AsyncIterator[StreamEvent]) -> StreamEvent:
     return await anext(stream)
 
 
@@ -152,6 +193,35 @@ async def test_event_broker_filters_private_events_for_public_view() -> None:
     await coordinator.emit(game, "day_started", {}, visibility=Visibility.PUBLIC)
     public = await asyncio.wait_for(public_task, 0.2)
     assert public.type == "day_started"
+    await public_stream.aclose()
+    await god_stream.aclose()
+
+
+async def test_transient_speech_is_private_and_never_persisted() -> None:
+    repository = MemoryRepository()
+    broker = EventBroker(queue_size=4)
+    coordinator = EventCoordinator(repository, broker)
+    game = GameState(id="streaming", player_count=6, phase=Phase.NIGHT)
+    public_stream = broker.subscribe("streaming", include_private=False)
+    god_stream = broker.subscribe("streaming", include_private=True)
+    public_task = asyncio.create_task(_next(public_stream))
+    god_task = asyncio.create_task(_next(god_stream))
+    await asyncio.sleep(0)
+
+    await coordinator.emit_transient(
+        game,
+        "speech_delta",
+        {"player": "曹操", "content_so_far": "今夜"},
+        visibility=Visibility.PRIVATE,
+    )
+    private = await asyncio.wait_for(god_task, 0.2)
+
+    assert isinstance(private, TransientGameEvent)
+    assert private.type == "speech_delta"
+    assert repository.events == {}
+    assert not public_task.done()
+    public_task.cancel()
+    await asyncio.gather(public_task, return_exceptions=True)
     await public_stream.aclose()
     await god_stream.aclose()
 
@@ -212,6 +282,54 @@ async def test_engine_persists_public_speech_without_moderation() -> None:
         event
         for event in repository.events[state.id]
         if event.type == "speech_moderated"
+    ]
+
+
+async def test_engine_streams_deltas_but_persists_only_completed_speech() -> None:
+    repository = MemoryRepository()
+
+    class TrackingBroker(EventBroker):
+        def __init__(self) -> None:
+            super().__init__()
+            self.published: list[StreamEvent] = []
+
+        async def publish(self, event: StreamEvent) -> None:
+            self.published.append(event)
+            await super().publish(event)
+
+    broker = TrackingBroker()
+    engine = GameEngine(
+        StreamingRuntime(),
+        repository,
+        EventCoordinator(repository, broker),
+    )
+    game = GameState(
+        id="streamed-discussion",
+        player_count=1,
+        status=GameStatus.RUNNING,
+        phase=Phase.DAY,
+        players=[GamePlayer("刘备", "刘备", "村民")],
+    )
+    await repository.create_game(game)
+
+    await engine._discuss(
+        game,
+        game.players,
+        "公开讨论",
+        discussion_kind="day",
+        rounds=1,
+    )
+
+    transient = [
+        item for item in broker.published if isinstance(item, TransientGameEvent)
+    ]
+    speeches = [item for item in repository.events[game.id] if item.type == "speech"]
+    assert [item.type for item in transient] == ["speech_delta"]
+    assert len(speeches) == 1
+    assert speeches[0].payload["content"] == "曹操可疑"
+    assert speeches[0].payload["stream_trace"] == [
+        {"offset_ms": 0, "delta": "曹操"},
+        {"offset_ms": 120, "delta": "可疑"},
     ]
 
 

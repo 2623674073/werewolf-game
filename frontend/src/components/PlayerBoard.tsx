@@ -1,29 +1,36 @@
 import { motion } from 'motion/react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import type { Player } from '../api/types'
 import { characterAssets, portraitFor, roleTheme } from '../assets/manifest'
 import type { GameProjection } from '../game/projection'
 import { seatPosition } from '../game/seatGeometry'
-import { TypewriterText } from './TypewriterText'
+import type { SpeechDraft } from '../store/playback'
 
 interface Props {
   players: Player[]
   projection: GameProjection
   phase: string
   round: number
+  draft: SpeechDraft | null
 }
 
-export function PlayerBoard({ players, projection, phase, round }: Props) {
+export function PlayerBoard({ players, projection, phase, round, draft }: Props) {
+  const activeSpeaker = draft && !draft.failed ? draft.player : projection.currentSpeaker
+  const speechPlayer = draft?.content ? draft.player : projection.speechPlayer
+  const speech = draft?.content || projection.currentSpeech
   return (
-    <section className={`game-board phase-${phase}`} aria-label="玩家席位">
+    <section
+      className={`game-board phase-${phase} player-count-${players.length} ${players.length >= 10 ? 'compact-seats' : ''}`}
+      aria-label="玩家席位"
+    >
       <div className="moon-disc" />
       <div className="board-ring" />
       {players.map((player, index) => {
         const position = seatPosition(index, players.length)
         const alive = projection.alive.get(player.name) ?? player.is_alive
         const role = projection.roles.get(player.name)
-        const active = projection.currentSpeaker === player.name
+        const active = activeSpeaker === player.name
         return (
           <motion.article
             layout
@@ -59,16 +66,29 @@ export function PlayerBoard({ players, projection, phase, round }: Props) {
           </motion.article>
         )
       })}
-      <motion.div className="center-stage" layout>
+      <motion.div className="center-stage" aria-live="polite">
         <span className="eyebrow">
           第 {round || '—'} 回合 · {phaseLabel(phase)}
         </span>
-        {projection.currentSpeaker ? (
+        {speechPlayer && speech ? (
           <>
-            <h2>{projection.currentSpeaker}</h2>
+            <h2>{speechPlayer}</h2>
+            <DialogueText text={speech} />
+            {draft?.failed && <small className="speech-failed">本次发言未能完整送达</small>}
+            {projection.currentSpeaker &&
+              projection.currentSpeaker !== speechPlayer &&
+              (!draft || draft.failed) && (
+                <span className="next-speaker thinking">
+                  {projection.currentSpeaker} 正在斟酌局势
+                </span>
+              )}
+          </>
+        ) : activeSpeaker ? (
+          <>
+            <h2>{activeSpeaker}</h2>
             <blockquote>
-              {projection.currentSpeech ? (
-                <TypewriterText text={projection.currentSpeech} />
+              {draft?.failed ? (
+                <span className="speech-failed">本次发言未能完整送达</span>
               ) : (
                 <span className="thinking">正在斟酌局势</span>
               )}
@@ -84,6 +104,28 @@ export function PlayerBoard({ players, projection, phase, round }: Props) {
         )}
       </motion.div>
     </section>
+  )
+}
+
+function DialogueText({ text }: { text: string }) {
+  const ref = useRef<HTMLQuoteElement>(null)
+  const followEnd = useRef(true)
+
+  useEffect(() => {
+    if (followEnd.current && ref.current) ref.current.scrollTop = ref.current.scrollHeight
+  }, [text])
+
+  return (
+    <blockquote
+      ref={ref}
+      onScroll={() => {
+        const element = ref.current
+        if (!element) return
+        followEnd.current = element.scrollHeight - element.scrollTop - element.clientHeight < 24
+      }}
+    >
+      {text}
+    </blockquote>
   )
 }
 

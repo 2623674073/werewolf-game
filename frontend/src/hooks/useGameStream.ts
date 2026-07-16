@@ -3,8 +3,8 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 
 import { getToken } from '../api/client'
-import { eventSchema } from '../api/schemas'
-import type { GameEvent, ViewMode } from '../api/types'
+import { eventSchema, speechStreamFrameSchema } from '../api/schemas'
+import type { GameEvent, StreamMessage, ViewMode } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import { usePlaybackStore } from '../store/playback'
 
@@ -12,7 +12,7 @@ export type ConnectionState = 'connecting' | 'live' | 'reconnecting' | 'closed' 
 
 class FatalStreamError extends Error {}
 
-export function parseStreamEvent(data: string): GameEvent | null {
+export function parseStreamEvent(data: string): StreamMessage | null {
   if (!data.trim()) return null
 
   let content: unknown
@@ -23,12 +23,15 @@ export function parseStreamEvent(data: string): GameEvent | null {
     return null
   }
 
-  const parsed = eventSchema.safeParse(content)
-  if (!parsed.success) {
+  const transient = speechStreamFrameSchema.safeParse(content)
+  if (transient.success) return transient.data
+
+  const persisted = eventSchema.safeParse(content)
+  if (!persisted.success) {
     console.warn('忽略不符合事件格式的 SSE 消息')
     return null
   }
-  return parsed.data as GameEvent
+  return persisted.data as GameEvent
 }
 
 export function useGameStream(gameId: string, view: ViewMode): ConnectionState {
@@ -37,6 +40,7 @@ export function useGameStream(gameId: string, view: ViewMode): ConnectionState {
   const { logout } = useAuth()
   const initialize = usePlaybackStore((state) => state.initialize)
   const append = usePlaybackStore((state) => state.append)
+  const applyStreamFrame = usePlaybackStore((state) => state.applyStreamFrame)
 
   useEffect(() => {
     initialize(gameId, view)
@@ -63,6 +67,10 @@ export function useGameStream(gameId: string, view: ViewMode): ConnectionState {
       onmessage(message) {
         const event = parseStreamEvent(message.data)
         if (!event) return
+        if (!('seq' in event)) {
+          applyStreamFrame(event)
+          return
+        }
         lastEventId = String(event.seq)
         append(event)
         if (
@@ -94,7 +102,7 @@ export function useGameStream(gameId: string, view: ViewMode): ConnectionState {
     })
 
     return () => controller.abort()
-  }, [append, gameId, initialize, logout, queryClient, view])
+  }, [append, applyStreamFrame, gameId, initialize, logout, queryClient, view])
 
   return connection
 }
