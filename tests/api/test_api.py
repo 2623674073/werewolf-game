@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 from httpx import ASGITransport, AsyncClient
 
+import werewolf_game.api.app as api_app
 from werewolf_game.api.app import AppComponents, create_app
 from werewolf_game.application.events import EventBroker
 from werewolf_game.application.service import GameService
@@ -135,6 +137,37 @@ async def test_event_views_and_terminal_sse_replay(tmp_path: Path) -> None:
         assert "id: 1" in stream.text
         assert "event: day_started" in stream.text
         assert "identity_assigned" not in stream.text
+    await database.dispose()
+
+
+async def test_running_sse_emits_comment_heartbeat_without_persisting_event(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _, database, repository = await make_client(tmp_path)
+    game = GameState(
+        id="running-heartbeat",
+        player_count=6,
+        status=GameStatus.RUNNING,
+        phase=Phase.DAY,
+    )
+    await repository.create_game(game)
+    broker = EventBroker()
+    components = SimpleNamespace(repository=repository, broker=broker)
+    observed_timeouts: list[float | None] = []
+
+    async def emit_timeout(_future, **kwargs):
+        observed_timeouts.append(kwargs.get("timeout"))
+        raise TimeoutError
+
+    monkeypatch.setattr(api_app.asyncio, "wait_for", emit_timeout)
+    stream = api_app._event_stream(components, game, 0, False)
+    try:
+        assert await anext(stream) == ": keep-alive\n\n"
+    finally:
+        await stream.aclose()
+
+    assert observed_timeouts == [15]
+    assert await repository.list_events(game.id, 0, include_private=True) == []
     await database.dispose()
 
 

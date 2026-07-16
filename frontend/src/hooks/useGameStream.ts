@@ -12,6 +12,25 @@ export type ConnectionState = 'connecting' | 'live' | 'reconnecting' | 'closed' 
 
 class FatalStreamError extends Error {}
 
+export function parseStreamEvent(data: string): GameEvent | null {
+  if (!data.trim()) return null
+
+  let content: unknown
+  try {
+    content = JSON.parse(data)
+  } catch {
+    console.warn('忽略无法解析的 SSE 消息')
+    return null
+  }
+
+  const parsed = eventSchema.safeParse(content)
+  if (!parsed.success) {
+    console.warn('忽略不符合事件格式的 SSE 消息')
+    return null
+  }
+  return parsed.data as GameEvent
+}
+
 export function useGameStream(gameId: string, view: ViewMode): ConnectionState {
   const [connection, setConnection] = useState<ConnectionState>('connecting')
   const queryClient = useQueryClient()
@@ -42,9 +61,8 @@ export function useGameStream(gameId: string, view: ViewMode): ConnectionState {
         setConnection('live')
       },
       onmessage(message) {
-        const parsed = eventSchema.safeParse(JSON.parse(message.data))
-        if (!parsed.success) return
-        const event = parsed.data as GameEvent
+        const event = parseStreamEvent(message.data)
+        if (!event) return
         lastEventId = String(event.seq)
         append(event)
         if (
