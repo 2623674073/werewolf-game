@@ -22,6 +22,7 @@ from werewolf_game.api.schemas import (
     CreateGameRequest,
     EventResponse,
     GameResponse,
+    GameReviewResponse,
     SessionResponse,
 )
 from werewolf_game.application.engine import GameEngine
@@ -32,16 +33,18 @@ from werewolf_game.application.errors import (
     NotFoundError,
 )
 from werewolf_game.application.events import EventBroker, EventCoordinator
+from werewolf_game.application.review_service import GameReviewService
 from werewolf_game.application.service import GameService
 from werewolf_game.config import Settings
 from werewolf_game.domain.models import GameEvent, GameState, GameStatus
+from werewolf_game.domain.reviews import GameReview
 from werewolf_game.infrastructure.agentscope_runtime import (
     AgentScopeRuntime,
     build_openai_compatible_model,
 )
 from werewolf_game.infrastructure.database import Database
+from werewolf_game.infrastructure.historian import McpGameHistorian
 from werewolf_game.infrastructure.logging import request_id_var
-from werewolf_game.infrastructure.moderation import McpSpeechModerator
 from werewolf_game.infrastructure.repository import SqliteGameRepository
 
 
@@ -52,7 +55,8 @@ class AppComponents:
     repository: SqliteGameRepository
     broker: EventBroker
     service: GameService
-    moderator: McpSpeechModerator | None = None
+    review_service: GameReviewService | None = None
+    historian: McpGameHistorian | None = None
 
 
 class ApiError(Exception):
@@ -84,15 +88,24 @@ def build_components(settings: Settings | None = None) -> AppComponents:
         timeout_seconds=settings.llm_timeout,
         max_retries=0,
     )
-    moderator = McpSpeechModerator(execution_timeout=settings.llm_timeout + 5)
+    historian = McpGameHistorian(execution_timeout=settings.historian_timeout)
     events = EventCoordinator(repository, broker)
     service = GameService(
         repository,
-        lambda: GameEngine(runtime, repository, events, moderator),
+        lambda: GameEngine(runtime, repository, events),
         max_concurrent_games=settings.max_concurrent_games,
         events=events,
     )
-    return AppComponents(settings, database, repository, broker, service, moderator)
+    review_service = GameReviewService(repository, historian)
+    return AppComponents(
+        settings,
+        database,
+        repository,
+        broker,
+        service,
+        review_service,
+        historian,
+    )
 
 
 def create_app(components: AppComponents | None = None) -> FastAPI:
@@ -101,21 +114,22 @@ def create_app(components: AppComponents | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         await components.repository.mark_running_interrupted()
-        if components.moderator is not None:
-            await components.moderator.start()
+        await components.repository.mark_pending_reviews_failed("service_restarted")
         try:
             yield
         finally:
             try:
                 await components.service.shutdown()
             finally:
+                if components.review_service is not None:
+                    await components.review_service.shutdown()
                 try:
-                    if components.moderator is not None:
-                        await components.moderator.close()
+                    if components.historian is not None:
+                        await components.historian.close()
                 finally:
                     await components.database.dispose()
 
-    app = FastAPI(title="Werewolf Game API", version="1.0.0", lifespan=lifespan)
+    app = FastAPI(title="Werewolf Game API", version="0.2.0", lifespan=lifespan)
     app.state.components = components
     app.add_middleware(
         CORSMiddleware,
@@ -261,6 +275,27 @@ def create_app(components: AppComponents | None = None) -> FastAPI:
         )
         return [_event_response(event) for event in events]
 
+    @router.post(
+        "/games/{game_id}/review",
+        status_code=202,
+        response_model=GameReviewResponse,
+        response_model_exclude_none=True,
+    )
+    async def create_game_review(game_id: str) -> GameReviewResponse:
+        if components.review_service is None:
+            raise ApiError(503, "review_service_unavailable", "复盘服务不可用")
+        return _review_response(await components.review_service.request_review(game_id))
+
+    @router.get(
+        "/games/{game_id}/review",
+        response_model=GameReviewResponse,
+        response_model_exclude_none=True,
+    )
+    async def get_game_review(game_id: str) -> GameReviewResponse:
+        if components.review_service is None:
+            raise ApiError(503, "review_service_unavailable", "复盘服务不可用")
+        return _review_response(await components.review_service.get_review(game_id))
+
     @router.get("/games/{game_id}/stream")
     async def stream_events(
         game_id: str,
@@ -380,6 +415,7 @@ def _game_response(game: GameState, *, god_view: bool) -> GameResponse:
             "name": player.name,
             "character": player.character,
             "is_alive": player.is_alive,
+            "persona_tags": player.persona_tags,
         }
         if reveal_roles:
             item.update(
@@ -400,6 +436,19 @@ def _game_response(game: GameState, *, god_view: bool) -> GameResponse:
         created_at=game.created_at.isoformat(),
         started_at=game.started_at.isoformat() if game.started_at else None,
         finished_at=game.finished_at.isoformat() if game.finished_at else None,
+    )
+
+
+def _review_response(review: GameReview) -> GameReviewResponse:
+    return GameReviewResponse(
+        game_id=review.game_id,
+        status=review.status.value,
+        result=review.result,
+        error_code=review.error_code,
+        created_at=review.created_at.isoformat(),
+        completed_at=(
+            review.completed_at.isoformat() if review.completed_at is not None else None
+        ),
     )
 
 

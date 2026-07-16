@@ -6,8 +6,8 @@ from typing import Literal, Protocol
 
 from pydantic import BaseModel
 
-from werewolf_game.application.moderation import ModerationDecision
 from werewolf_game.domain.models import GameEvent, GameState
+from werewolf_game.domain.reviews import GameDossier, GameReview, GameReviewResult
 
 
 @dataclass(slots=True, frozen=True)
@@ -40,15 +40,8 @@ class AgentRuntime(Protocol):
     async def close(self, game_id: str) -> None: ...
 
 
-class SpeechModerator(Protocol):
-    async def review_speech(
-        self,
-        *,
-        player: str,
-        phase: str,
-        round_number: int,
-        content: str,
-    ) -> ModerationDecision: ...
+class GameHistorian(Protocol):
+    async def generate_review(self, dossier: GameDossier) -> GameReviewResult: ...
 
 
 class GameRepository(Protocol):
@@ -66,4 +59,8 @@ class GameRepository(Protocol):
     ) -> list[GameEvent]: ...
 
     async def mark_running_interrupted(self) -> int: ...
+    async def create_review(self, review: GameReview) -> GameReview: ...
+    async def get_review(self, game_id: str) -> GameReview | None: ...
+    async def save_review(self, review: GameReview) -> None: ...
+    async def mark_pending_reviews_failed(self, error_code: str) -> int: ...
     async def ping(self) -> bool: ...

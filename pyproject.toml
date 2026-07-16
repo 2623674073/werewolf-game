@@ -1,6 +1,6 @@
 [project]
 name = "werewolf-game"
-version = "0.1.0"
+version = "0.2.0"
 description = "Production-ready AgentScope werewolf game service"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
@@ -19,7 +19,7 @@ dependencies = [
 [project.scripts]
 werewolf-server = "werewolf_game.cli:server_main"
 werewolf-game = "werewolf_game.cli:game_main"
-werewolf-moderation-mcp = "werewolf_game.mcp.moderation_server:main"
+werewolf-historian-mcp = "werewolf_game.mcp.historian_server:main"
 
 [dependency-groups]
 dev = [

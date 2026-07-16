@@ -44,6 +44,9 @@ export function PlayerBoard({ players, projection, phase, round }: Props) {
             <div className="seat-copy">
               <strong>{player.name}</strong>
               <span>{alive ? (active ? '正在发言' : '静候局势') : '已离席'}</span>
+              {(player.persona_tags ?? []).length > 0 && (
+                <small>{(player.persona_tags ?? []).slice(0, 2).join(' · ')}</small>
+              )}
             </div>
             {role && (
               <span

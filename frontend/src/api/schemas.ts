@@ -7,6 +7,7 @@ export const playerSchema = z.object({
   role: z.string().nullable().optional(),
   has_antidote: z.boolean().nullable().optional(),
   has_poison: z.boolean().nullable().optional(),
+  persona_tags: z.array(z.string()).default([]),
 })
 
 export const gameSchema = z.object({
@@ -37,4 +38,41 @@ export const eventSchema = z.object({
   recipients: z.array(z.string()),
   payload: z.record(z.string(), z.unknown()),
   created_at: z.string(),
+})
+
+const turningPointSchema = z.object({
+  title: z.string(),
+  analysis: z.string(),
+  event_seqs: z.array(z.number().int().positive()),
+})
+
+const playerReviewSchema = z.object({
+  player: z.string(),
+  character: z.string(),
+  role: z.string(),
+  score: z.number().min(0).max(10),
+  role_completion: z.string(),
+  highlights: z.array(z.string()),
+  mistakes: z.array(z.string()),
+  evidence_event_seqs: z.array(z.number().int().positive()),
+})
+
+export const gameReviewSchema = z.object({
+  game_id: z.string(),
+  status: z.enum(['pending', 'completed', 'failed']),
+  result: z
+    .object({
+      title: z.string(),
+      overview: z.string(),
+      turning_points: z.array(turningPointSchema),
+      winning_factors: z.array(z.string()),
+      player_reviews: z.array(playerReviewSchema),
+      mvp: z.string(),
+      closing_comment: z.string(),
+    })
+    .nullable()
+    .optional(),
+  error_code: z.string().nullable().optional(),
+  created_at: z.string(),
+  completed_at: z.string().nullable().optional(),
 })

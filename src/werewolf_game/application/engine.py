@@ -6,11 +6,9 @@ import random
 from datetime import UTC, datetime
 
 from werewolf_game.application.events import EventCoordinator
-from werewolf_game.application.moderation import ModerationDecision, ModerationStatus
 from werewolf_game.application.ports import (
     AgentRuntime,
     GameRepository,
-    SpeechModerator,
 )
 from werewolf_game.domain.models import (
     GamePlayer,
@@ -19,6 +17,7 @@ from werewolf_game.domain.models import (
     Phase,
     Visibility,
 )
+from werewolf_game.domain.personas import character_profile
 from werewolf_game.domain.rules import (
     CHARACTER_NAMES,
     check_winner,
@@ -36,9 +35,6 @@ from werewolf_game.domain.schemas import (
 
 logger = logging.getLogger(__name__)
 
-_BLOCKED_SPEECH = "[该玩家发言因内容审核未通过而隐藏]"
-_UNAVAILABLE_SPEECH = "[内容审核暂时不可用，该玩家本轮发言已跳过]"
-
 
 class GameEngine:
     def __init__(
@@ -46,7 +42,6 @@ class GameEngine:
         runtime: AgentRuntime,
         repository: GameRepository,
         events: EventCoordinator,
-        moderator: SpeechModerator,
         *,
         rng: random.Random | None = None,
         max_rounds: int = 10,
@@ -55,7 +50,6 @@ class GameEngine:
         self.runtime = runtime
         self.repository = repository
         self.events = events
-        self.moderator = moderator
         self.rng = rng or random.Random()
         self.max_rounds = max_rounds
         self.discussion_rounds = discussion_rounds
@@ -95,7 +89,12 @@ class GameEngine:
             characters = self.rng.sample(list(CHARACTER_NAMES), game.player_count)
             roles = role_setup(game.player_count)
             game.players = [
-                GamePlayer(name=name, character=name, role=role)
+                GamePlayer(
+                    name=name,
+                    character=name,
+                    role=role,
+                    persona_tags=list(character_profile(name).persona_tags),
+                )
                 for name, role in zip(characters, roles, strict=True)
             ]
         game.status = GameStatus.RUNNING
@@ -379,60 +378,11 @@ class GameEngine:
                 "discussion_kind": discussion_kind,
             }
             if activity.kind == "speech":
-                content = activity.content or ""
-                if visibility is Visibility.PUBLIC:
-                    decision = await self._review_public_speech(
-                        game,
-                        player=activity.player,
-                        content=content,
-                    )
-                    if decision.status is not ModerationStatus.ALLOWED:
-                        await self.events.emit(
-                            game,
-                            "speech_moderated",
-                            {
-                                "player": activity.player,
-                                "status": decision.status.value,
-                                "categories": [
-                                    category.value for category in decision.categories
-                                ],
-                            },
-                            visibility=Visibility.INTERNAL,
-                        )
-                        content = (
-                            _BLOCKED_SPEECH
-                            if decision.status is ModerationStatus.BLOCKED
-                            else _UNAVAILABLE_SPEECH
-                        )
-                payload["content"] = content
+                payload["content"] = activity.content or ""
             await self.events.emit(
                 game,
                 "speaker_turn_started" if activity.kind == "turn_started" else "speech",
                 payload,
                 visibility=visibility,
                 recipients=recipient_names,
-            )
-
-    async def _review_public_speech(
-        self,
-        game: GameState,
-        *,
-        player: str,
-        content: str,
-    ) -> ModerationDecision:
-        try:
-            return await self.moderator.review_speech(
-                player=player,
-                phase=game.phase.value,
-                round_number=game.round_number,
-                content=content,
-            )
-        except Exception:
-            logger.warning(
-                "speech moderator raised unexpectedly",
-                extra={"game_id": game.id, "player": player},
-            )
-            return ModerationDecision(
-                status=ModerationStatus.UNAVAILABLE,
-                reason="moderation_service_unavailable",
             )

@@ -37,6 +37,7 @@ class GamePlayer:
     is_alive: bool = True
     has_antidote: bool | None = None
     has_poison: bool | None = None
+    persona_tags: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         is_witch = self.role == "女巫"

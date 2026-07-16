@@ -107,6 +107,24 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/games/{game_id}/review': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /** Get Game Review */
+    get: operations['get_game_review_api_v1_games__game_id__review_get']
+    put?: never
+    /** Create Game Review */
+    post: operations['create_game_review_api_v1_games__game_id__review_post']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/games/{game_id}/stream': {
     parameters: {
       query?: never
@@ -304,6 +322,40 @@ export interface components {
       /** Finished At */
       finished_at?: string | null
     }
+    /** GameReviewResponse */
+    GameReviewResponse: {
+      /** Game Id */
+      game_id: string
+      /**
+       * Status
+       * @enum {string}
+       */
+      status: 'pending' | 'completed' | 'failed'
+      result?: components['schemas']['GameReviewResult'] | null
+      /** Error Code */
+      error_code?: string | null
+      /** Created At */
+      created_at: string
+      /** Completed At */
+      completed_at?: string | null
+    }
+    /** GameReviewResult */
+    GameReviewResult: {
+      /** Title */
+      title: string
+      /** Overview */
+      overview: string
+      /** Turning Points */
+      turning_points: components['schemas']['TurningPoint'][]
+      /** Winning Factors */
+      winning_factors: string[]
+      /** Player Reviews */
+      player_reviews: components['schemas']['PlayerReview'][]
+      /** Mvp */
+      mvp: string
+      /** Closing Comment */
+      closing_comment: string
+    }
     /** GameStartedPayload */
     GameStartedPayload: {
       /** Players */
@@ -380,6 +432,27 @@ export interface components {
       has_antidote?: boolean | null
       /** Has Poison */
       has_poison?: boolean | null
+      /** Persona Tags */
+      persona_tags?: string[]
+    }
+    /** PlayerReview */
+    PlayerReview: {
+      /** Player */
+      player: string
+      /** Character */
+      character: string
+      /** Role */
+      role: string
+      /** Score */
+      score: number
+      /** Role Completion */
+      role_completion: string
+      /** Highlights */
+      highlights?: string[]
+      /** Mistakes */
+      mistakes?: string[]
+      /** Evidence Event Seqs */
+      evidence_event_seqs: number[]
     }
     /** RevealedRole */
     RevealedRole: {
@@ -442,6 +515,15 @@ export interface components {
       content: string
     } & {
       [key: string]: unknown
+    }
+    /** TurningPoint */
+    TurningPoint: {
+      /** Title */
+      title: string
+      /** Analysis */
+      analysis: string
+      /** Event Seqs */
+      event_seqs: number[]
     }
     /** ValidationError */
     ValidationError: {
@@ -703,6 +785,68 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['EventResponse'][]
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  get_game_review_api_v1_games__game_id__review_get: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        game_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['GameReviewResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  create_game_review_api_v1_games__game_id__review_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        game_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      202: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['GameReviewResponse']
         }
       }
       /** @description Validation Error */

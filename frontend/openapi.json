@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Werewolf Game API",
-    "version": "1.0.0"
+    "version": "0.2.0"
   },
   "paths": {
     "/api/v1/session": {
@@ -327,6 +327,92 @@
                     "$ref": "#/components/schemas/EventResponse"
                   },
                   "title": "Response List Events Api V1 Games  Game Id  Events Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/games/{game_id}/review": {
+      "post": {
+        "summary": "Create Game Review",
+        "operationId": "create_game_review_api_v1_games__game_id__review_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Game Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GameReviewResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "Get Game Review",
+        "operationId": "get_game_review_api_v1_games__game_id__review_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Game Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GameReviewResponse"
                 }
               }
             }
@@ -775,6 +861,122 @@
         ],
         "title": "GameResponse"
       },
+      "GameReviewResponse": {
+        "properties": {
+          "game_id": {
+            "type": "string",
+            "title": "Game Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "completed", "failed"],
+            "title": "Status"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GameReviewResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          }
+        },
+        "type": "object",
+        "required": ["game_id", "status", "created_at"],
+        "title": "GameReviewResponse"
+      },
+      "GameReviewResult": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "overview": {
+            "type": "string",
+            "maxLength": 1200,
+            "minLength": 1,
+            "title": "Overview"
+          },
+          "turning_points": {
+            "items": {
+              "$ref": "#/components/schemas/TurningPoint"
+            },
+            "type": "array",
+            "maxItems": 5,
+            "minItems": 2,
+            "title": "Turning Points"
+          },
+          "winning_factors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 5,
+            "minItems": 1,
+            "title": "Winning Factors"
+          },
+          "player_reviews": {
+            "items": {
+              "$ref": "#/components/schemas/PlayerReview"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Player Reviews"
+          },
+          "mvp": {
+            "type": "string",
+            "title": "Mvp"
+          },
+          "closing_comment": {
+            "type": "string",
+            "maxLength": 600,
+            "minLength": 1,
+            "title": "Closing Comment"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "title",
+          "overview",
+          "turning_points",
+          "winning_factors",
+          "player_reviews",
+          "mvp",
+          "closing_comment"
+        ],
+        "title": "GameReviewResult"
+      },
       "GameStartedPayload": {
         "properties": {
           "players": {
@@ -954,11 +1156,80 @@
               }
             ],
             "title": "Has Poison"
+          },
+          "persona_tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Persona Tags"
           }
         },
         "type": "object",
         "required": ["name", "character", "is_alive"],
         "title": "PlayerResponse"
+      },
+      "PlayerReview": {
+        "properties": {
+          "player": {
+            "type": "string",
+            "title": "Player"
+          },
+          "character": {
+            "type": "string",
+            "title": "Character"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "score": {
+            "type": "number",
+            "maximum": 10.0,
+            "minimum": 0.0,
+            "title": "Score"
+          },
+          "role_completion": {
+            "type": "string",
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Role Completion"
+          },
+          "highlights": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 4,
+            "title": "Highlights"
+          },
+          "mistakes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 4,
+            "title": "Mistakes"
+          },
+          "evidence_event_seqs": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Evidence Event Seqs"
+          }
+        },
+        "type": "object",
+        "required": [
+          "player",
+          "character",
+          "role",
+          "score",
+          "role_completion",
+          "evidence_event_seqs"
+        ],
+        "title": "PlayerReview"
       },
       "RevealedRole": {
         "properties": {
@@ -1078,6 +1349,33 @@
         "type": "object",
         "required": ["player", "round", "discussion_round", "discussion_kind", "content"],
         "title": "SpeechPayload"
+      },
+      "TurningPoint": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "analysis": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Analysis"
+          },
+          "event_seqs": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Event Seqs"
+          }
+        },
+        "type": "object",
+        "required": ["title", "analysis", "event_seqs"],
+        "title": "TurningPoint"
       },
       "ValidationError": {
         "properties": {

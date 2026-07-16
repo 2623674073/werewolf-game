@@ -6,7 +6,9 @@ import pytest
 from pydantic import ValidationError
 
 from werewolf_game.domain.models import GamePlayer, GameStatus, Phase, Visibility
+from werewolf_game.domain.personas import CHARACTER_PROFILES
 from werewolf_game.domain.rules import (
+    CHARACTER_NAMES,
     check_winner,
     majority_vote,
     role_prompt,
@@ -70,6 +72,19 @@ def test_role_prompt_contains_identity_and_character() -> None:
     prompt = role_prompt("狼人", "曹操")
     assert "狼人" in prompt
     assert "曹操" in prompt
+    assert "人物风格只影响表达方式" in prompt
+
+
+def test_all_characters_have_distinct_structured_personas() -> None:
+    assert set(CHARACTER_PROFILES) == set(CHARACTER_NAMES)
+    assert all(
+        len(profile.persona_tags) == 2 for profile in CHARACTER_PROFILES.values()
+    )
+    assert all(
+        1 <= profile.speech_intensity <= 5 for profile in CHARACTER_PROFILES.values()
+    )
+    assert CHARACTER_PROFILES["张飞"].speech_intensity == 5
+    assert CHARACTER_PROFILES["诸葛亮"].speech_intensity == 1
 
 
 def test_majority_vote_ignores_invalid_and_uses_injected_rng() -> None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -8,6 +9,7 @@ from httpx import ASGITransport, AsyncClient
 import werewolf_game.api.app as api_app
 from werewolf_game.api.app import AppComponents, create_app
 from werewolf_game.application.events import EventBroker
+from werewolf_game.application.review_service import GameReviewService
 from werewolf_game.application.service import GameService
 from werewolf_game.config import Settings
 from werewolf_game.domain.models import (
@@ -18,6 +20,7 @@ from werewolf_game.domain.models import (
     Phase,
     Visibility,
 )
+from werewolf_game.domain.reviews import GameDossier, GameReviewResult
 from werewolf_game.infrastructure.database import Database
 from werewolf_game.infrastructure.repository import SqliteGameRepository
 
@@ -29,6 +32,45 @@ class InstantEngine:
         game.status = GameStatus.DRAW
         game.phase = Phase.FINISHED
         game.winner = "draw"
+
+
+class FakeHistorian:
+    async def generate_review(self, dossier: GameDossier) -> GameReviewResult:
+        evidence = dossier.events[0].seq
+        return GameReviewResult.model_validate(
+            {
+                "title": "群雄终局",
+                "overview": "本局已经完成。",
+                "turning_points": [
+                    {
+                        "title": "局势初定",
+                        "analysis": "关键事件出现。",
+                        "event_seqs": [evidence],
+                    },
+                    {
+                        "title": "胜负落定",
+                        "analysis": "阵营完成目标。",
+                        "event_seqs": [evidence],
+                    },
+                ],
+                "winning_factors": ["有效利用公开信息"],
+                "player_reviews": [
+                    {
+                        "player": player.name,
+                        "character": player.character,
+                        "role": player.role,
+                        "score": 8,
+                        "role_completion": "完成本局职责。",
+                        "highlights": [],
+                        "mistakes": [],
+                        "evidence_event_seqs": [evidence],
+                    }
+                    for player in dossier.players
+                ],
+                "mvp": dossier.players[0].name,
+                "closing_comment": "此局已入史册。",
+            }
+        )
 
 
 async def make_client(
@@ -47,7 +89,17 @@ async def make_client(
     repository = SqliteGameRepository(database.session_factory)
     broker = EventBroker()
     service = GameService(repository, lambda: InstantEngine(), max_concurrent_games=2)
-    app = create_app(AppComponents(settings, database, repository, broker, service))
+    review_service = GameReviewService(repository, FakeHistorian())
+    app = create_app(
+        AppComponents(
+            settings,
+            database,
+            repository,
+            broker,
+            service,
+            review_service,
+        )
+    )
     client = AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
     return client, database, repository
 
@@ -245,10 +297,72 @@ async def test_openapi_exposes_typed_session_game_and_event_contracts(
     async with client:
         schema = (await client.get("/openapi.json")).json()
         components = schema["components"]["schemas"]
-        assert {"SessionResponse", "GameResponse", "EventResponse"} <= set(components)
+        assert {
+            "SessionResponse",
+            "GameResponse",
+            "EventResponse",
+            "GameReviewResponse",
+        } <= set(components)
         event_type = components["EventResponse"]["properties"]["type"]
         assert "speech" in event_type["enum"]
         assert "roles_revealed" in event_type["enum"]
+    await database.dispose()
+
+
+async def test_completed_game_can_generate_and_reuse_historian_review(
+    tmp_path: Path,
+) -> None:
+    client, database, repository = await make_client(tmp_path)
+    game = GameState(
+        id="review-api",
+        player_count=2,
+        status=GameStatus.COMPLETED,
+        phase=Phase.FINISHED,
+        winner="villagers",
+        players=[
+            GamePlayer("刘备", "刘备", "预言家", persona_tags=["仁厚沉稳"]),
+            GamePlayer("曹操", "曹操", "狼人", is_alive=False),
+        ],
+    )
+    await repository.create_game(game)
+    await repository.append_event(
+        GameEvent(
+            game.id,
+            0,
+            "game_finished",
+            Phase.FINISHED,
+            Visibility.PUBLIC,
+            (),
+            {"winner": "villagers"},
+        )
+    )
+
+    async with client:
+        missing = await client.get(f"/api/v1/games/{game.id}/review", headers=auth())
+        assert missing.status_code == 404
+        started = await client.post(
+            f"/api/v1/games/{game.id}/review",
+            headers=auth(),
+        )
+        assert started.status_code == 202
+        assert started.json()["status"] == "pending"
+        for _ in range(20):
+            completed = await client.get(
+                f"/api/v1/games/{game.id}/review",
+                headers=auth(),
+            )
+            if completed.json()["status"] == "completed":
+                break
+            await asyncio.sleep(0.01)
+        assert completed.json()["result"]["mvp"] == "刘备"
+        assert completed.json()["result"]["player_reviews"][0]["score"] == 8.0
+        reused = await client.post(
+            f"/api/v1/games/{game.id}/review",
+            headers=auth(),
+        )
+        assert reused.json()["status"] == "completed"
+        snapshot = await client.get(f"/api/v1/games/{game.id}", headers=auth())
+        assert snapshot.json()["players"][0]["persona_tags"] == ["仁厚沉稳"]
     await database.dispose()
 
 

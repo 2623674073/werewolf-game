@@ -11,6 +11,7 @@ from werewolf_game.domain.models import (
     Phase,
     Visibility,
 )
+from werewolf_game.domain.reviews import GameReview, ReviewStatus
 from werewolf_game.infrastructure.database import Database
 from werewolf_game.infrastructure.repository import SqliteGameRepository
 
@@ -69,4 +70,25 @@ async def test_startup_marks_running_games_interrupted(tmp_path: Path) -> None:
     assert loaded is not None
     assert loaded.status is GameStatus.INTERRUPTED
     assert loaded.phase is Phase.FINISHED
+    await database.dispose()
+
+
+async def test_repository_persists_reviews_and_marks_stale_pending(
+    tmp_path: Path,
+) -> None:
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'reviews.db'}")
+    await database.create_schema()
+    repository = SqliteGameRepository(database.session_factory)
+    await repository.create_game(
+        GameState(id="reviewed", player_count=6, status=GameStatus.DRAW)
+    )
+    await repository.create_review(GameReview(game_id="reviewed"))
+
+    loaded = await repository.get_review("reviewed")
+    assert loaded is not None and loaded.status is ReviewStatus.PENDING
+    assert await repository.mark_pending_reviews_failed("service_restarted") == 1
+    failed = await repository.get_review("reviewed")
+    assert failed is not None
+    assert failed.status is ReviewStatus.FAILED
+    assert failed.error_code == "service_restarted"
     await database.dispose()

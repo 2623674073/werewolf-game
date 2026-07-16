@@ -11,11 +11,6 @@ from pydantic import BaseModel
 from werewolf_game.application.engine import GameEngine
 from werewolf_game.application.errors import CapacityError, NotFoundError
 from werewolf_game.application.events import EventBroker, EventCoordinator
-from werewolf_game.application.moderation import (
-    ModerationCategory,
-    ModerationDecision,
-    ModerationStatus,
-)
 from werewolf_game.application.ports import DiscussionActivity
 from werewolf_game.application.service import GameService
 from werewolf_game.domain.models import GameEvent, GameState, GameStatus, Visibility
@@ -117,44 +112,6 @@ class FakeRuntime:
         self.closed.append(game_id)
 
 
-class FakeModerator:
-    def __init__(self, status: ModerationStatus = ModerationStatus.ALLOWED) -> None:
-        self.status = status
-        self.calls: list[str] = []
-
-    async def review_speech(
-        self,
-        *,
-        player: str,
-        phase: str,
-        round_number: int,
-        content: str,
-    ) -> ModerationDecision:
-        self.calls.append(content)
-        categories = (
-            [ModerationCategory.HARASSMENT]
-            if self.status is ModerationStatus.BLOCKED
-            else []
-        )
-        return ModerationDecision(
-            status=self.status,
-            categories=categories,
-            reason="test",
-        )
-
-
-class FailingModerator(FakeModerator):
-    async def review_speech(
-        self,
-        *,
-        player: str,
-        phase: str,
-        round_number: int,
-        content: str,
-    ) -> ModerationDecision:
-        raise RuntimeError("moderation process stopped")
-
-
 def _literal_values(annotation: Any) -> tuple[str, ...]:
     return tuple(annotation.__args__)
 
@@ -195,12 +152,10 @@ async def test_engine_runs_offline_game_and_closes_runtime() -> None:
     events = EventCoordinator(repository, EventBroker())
     state = GameState(id="game-2", player_count=6)
     await repository.create_game(state)
-    moderator = FakeModerator()
     engine = GameEngine(
         runtime,
         repository,
         events,
-        moderator,
         rng=random.Random(2),
         max_rounds=2,
     )
@@ -219,20 +174,19 @@ async def test_engine_runs_offline_game_and_closes_runtime() -> None:
         "speaker_turn_started",
         "roles_revealed",
     } <= event_types
-    assert moderator.calls
+    assert all(player.persona_tags for player in state.players)
 
 
-async def test_engine_hides_blocked_public_speech_without_persisting_raw_text() -> None:
+async def test_engine_persists_public_speech_without_moderation() -> None:
     repository = MemoryRepository()
     events = EventCoordinator(repository, EventBroker())
-    state = GameState(id="moderated", player_count=6)
+    state = GameState(id="unmoderated", player_count=6)
     await repository.create_game(state)
 
     await GameEngine(
         FakeRuntime(),
         repository,
         events,
-        FakeModerator(ModerationStatus.BLOCKED),
         rng=random.Random(2),
         max_rounds=1,
     ).run(state)
@@ -243,44 +197,12 @@ async def test_engine_hides_blocked_public_speech_without_persisting_raw_text() 
         if event.type == "speech" and event.visibility is Visibility.PUBLIC
     ]
     assert public_speeches
-    assert {event.payload["content"] for event in public_speeches} == {
-        "[该玩家发言因内容审核未通过而隐藏]"
-    }
-    audits = [
+    assert {str(event.payload["content"]).split("发言")[0] for event in public_speeches}
+    assert not [
         event
         for event in repository.events[state.id]
         if event.type == "speech_moderated"
     ]
-    assert audits
-    assert all(event.visibility is Visibility.INTERNAL for event in audits)
-    assert all("content" not in event.payload for event in audits)
-
-
-async def test_engine_hides_speech_and_continues_when_moderator_raises() -> None:
-    repository = MemoryRepository()
-    events = EventCoordinator(repository, EventBroker())
-    state = GameState(id="moderation-failed", player_count=6)
-    await repository.create_game(state)
-
-    await GameEngine(
-        FakeRuntime(),
-        repository,
-        events,
-        FailingModerator(),
-        rng=random.Random(2),
-        max_rounds=1,
-    ).run(state)
-
-    assert state.status in {GameStatus.COMPLETED, GameStatus.DRAW}
-    public_speeches = [
-        event
-        for event in repository.events[state.id]
-        if event.type == "speech" and event.visibility is Visibility.PUBLIC
-    ]
-    assert public_speeches
-    assert {event.payload["content"] for event in public_speeches} == {
-        "[内容审核暂时不可用，该玩家本轮发言已跳过]"
-    }
 
 
 async def test_service_rejects_duplicate_start_and_can_cancel() -> None:
@@ -378,7 +300,7 @@ async def test_engine_marks_fatal_runtime_failure_without_leaking_exception() ->
     state = GameState(id="failed", player_count=6)
     await repository.create_game(state)
 
-    await GameEngine(runtime, repository, events, FakeModerator()).run(state)
+    await GameEngine(runtime, repository, events).run(state)
 
     assert state.status is GameStatus.FAILED
     assert state.error_code == "game_execution_failed"

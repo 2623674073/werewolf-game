@@ -14,7 +14,8 @@ from werewolf_game.domain.models import (
     Phase,
     Visibility,
 )
-from werewolf_game.infrastructure.orm import EventRow, GameRow
+from werewolf_game.domain.reviews import GameReview, GameReviewResult, ReviewStatus
+from werewolf_game.infrastructure.orm import EventRow, GameReviewRow, GameRow
 
 
 class SqliteGameRepository:
@@ -114,6 +115,40 @@ class SqliteGameRepository:
             await session.commit()
             return int(result.rowcount or 0)  # type: ignore[attr-defined]
 
+    async def create_review(self, review: GameReview) -> GameReview:
+        async with self.session_factory() as session:
+            session.add(_review_to_row(review))
+            await session.commit()
+        return review
+
+    async def get_review(self, game_id: str) -> GameReview | None:
+        async with self.session_factory() as session:
+            row = await session.get(GameReviewRow, game_id)
+            return _row_to_review(row) if row is not None else None
+
+    async def save_review(self, review: GameReview) -> None:
+        async with self.session_factory() as session:
+            await session.execute(
+                update(GameReviewRow)
+                .where(GameReviewRow.game_id == review.game_id)
+                .values(**_review_values(review))
+            )
+            await session.commit()
+
+    async def mark_pending_reviews_failed(self, error_code: str) -> int:
+        async with self.session_factory() as session:
+            result = await session.execute(
+                update(GameReviewRow)
+                .where(GameReviewRow.status == ReviewStatus.PENDING.value)
+                .values(
+                    status=ReviewStatus.FAILED.value,
+                    error_code=error_code,
+                    completed_at=datetime.now(UTC),
+                )
+            )
+            await session.commit()
+            return int(result.rowcount or 0)  # type: ignore[attr-defined]
+
     async def ping(self) -> bool:
         async with self.session_factory() as session:
             value = cast(int | None, await session.scalar(select(1)))
@@ -129,6 +164,7 @@ def _players_to_json(players: list[GamePlayer]) -> list[dict[str, object]]:
             "is_alive": player.is_alive,
             "has_antidote": player.has_antidote,
             "has_poison": player.has_poison,
+            "persona_tags": player.persona_tags,
         }
         for player in players
     ]
@@ -179,4 +215,35 @@ def _row_to_event(row: EventRow) -> GameEvent:
         recipients=tuple(row.recipients),
         payload=row.payload,
         created_at=row.created_at,
+    )
+
+
+def _review_values(review: GameReview) -> dict[str, object]:
+    return {
+        "status": review.status.value,
+        "result": (
+            review.result.model_dump(mode="json") if review.result is not None else None
+        ),
+        "error_code": review.error_code,
+        "created_at": review.created_at,
+        "completed_at": review.completed_at,
+    }
+
+
+def _review_to_row(review: GameReview) -> GameReviewRow:
+    return GameReviewRow(game_id=review.game_id, **_review_values(review))
+
+
+def _row_to_review(row: GameReviewRow) -> GameReview:
+    return GameReview(
+        game_id=row.game_id,
+        status=ReviewStatus(row.status),
+        result=(
+            GameReviewResult.model_validate(row.result)
+            if row.result is not None
+            else None
+        ),
+        error_code=row.error_code,
+        created_at=row.created_at,
+        completed_at=row.completed_at,
     )

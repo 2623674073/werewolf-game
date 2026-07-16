@@ -1,5 +1,8 @@
 # 定位
-当前文档用于对docs文件夹所有的文档进行摘要介绍
+
+当前文档用于汇总 `docs` 目录中的架构与集成说明。
 
 # 摘要
-1.mcp-speech-moderation.md: 本文档说明狼人杀业务如何启动独立的 MCP 服务，并在游戏运行过程中通过 MCP Client 审核公开发言。首版只实现一个 `review_speech` Tool，使用 stdio 传输，不依赖 Codex、浏览器或远程 MCP 平台。
+
+1. `architecture.md`：分层架构、对局生命周期、事件隐私和失败模型。
+2. `mcp-game-historian.md`：终局史官 MCP 的 Tool 契约、分回合分析、持久化和恢复策略。

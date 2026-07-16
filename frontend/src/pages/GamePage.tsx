@@ -3,11 +3,12 @@ import { ArrowLeft, Eye, EyeOff, LogOut, Radio, XCircle } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 
-import { cancelGame, getGame } from '../api/client'
+import { ApiError, cancelGame, createGameReview, getGame, getGameReview } from '../api/client'
 import type { ViewMode } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { EventTimeline } from '../components/EventTimeline'
+import { GameReviewPanel } from '../components/GameReviewPanel'
 import { PlaybackControls } from '../components/PlaybackControls'
 import { PlayerBoard } from '../components/PlayerBoard'
 import { projectGame } from '../game/projection'
@@ -30,7 +31,7 @@ export function GamePage() {
   })
   const connection = useGameStream(gameId, view)
   usePlaybackClock()
-  const { events, cursor } = usePlaybackStore()
+  const { events, cursor, setCursor } = usePlaybackStore()
   const projection = useMemo(
     () => (gameQuery.data ? projectGame(gameQuery.data, events, cursor) : null),
     [cursor, events, gameQuery.data],
@@ -42,6 +43,24 @@ export function GamePage() {
       await queryClient.invalidateQueries({ queryKey: ['games'] })
     },
   })
+  const reviewable = gameQuery.data?.status === 'completed' || gameQuery.data?.status === 'draw'
+  const reviewQuery = useQuery({
+    queryKey: ['game-review', gameId],
+    queryFn: () => getGameReview(gameId),
+    enabled: reviewable,
+    retry: false,
+    refetchInterval: (query) => (query.state.data?.status === 'pending' ? 2_000 : false),
+  })
+  const reviewMutation = useMutation({
+    mutationFn: () => createGameReview(gameId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['game-review', gameId] })
+    },
+  })
+  const review =
+    reviewQuery.error instanceof ApiError && reviewQuery.error.status === 404
+      ? null
+      : (reviewQuery.data ?? null)
 
   function setView(next: ViewMode) {
     localStorage.setItem('werewolf.view', next)
@@ -119,6 +138,23 @@ export function GamePage() {
         <EventTimeline events={projection.visibleEvents} />
       </div>
       <PlaybackControls />
+      {reviewable && (
+        <GameReviewPanel
+          review={review}
+          loading={reviewQuery.isLoading}
+          requesting={reviewMutation.isPending}
+          requestError={
+            reviewMutation.error instanceof ApiError
+              ? reviewMutation.error.message
+              : reviewMutation.isError
+                ? '复盘请求失败'
+                : undefined
+          }
+          events={events}
+          onRequest={() => reviewMutation.mutate()}
+          onSeek={setCursor}
+        />
+      )}
     </main>
   )
 }

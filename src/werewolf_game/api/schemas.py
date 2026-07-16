@@ -4,6 +4,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from werewolf_game.domain.reviews import GameReviewResult
+
 GameStatusValue = Literal[
     "created",
     "running",
@@ -54,6 +56,7 @@ class PlayerResponse(BaseModel):
     role: str | None = None
     has_antidote: bool | None = None
     has_poison: bool | None = None
+    persona_tags: list[str] = Field(default_factory=list)
 
 
 class GameResponse(BaseModel):
@@ -212,3 +215,12 @@ class ErrorDetail(BaseModel):
 
 class ErrorResponse(BaseModel):
     error: ErrorDetail
+
+
+class GameReviewResponse(BaseModel):
+    game_id: str
+    status: Literal["pending", "completed", "failed"]
+    result: GameReviewResult | None = None
+    error_code: str | None = None
+    created_at: str
+    completed_at: str | None = None

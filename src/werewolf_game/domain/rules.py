@@ -5,6 +5,7 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 
 from werewolf_game.domain.models import GamePlayer
+from werewolf_game.domain.personas import character_profile
 
 ROLE_DATA: dict[str, dict[str, str]] = {
     "狼人": {"team": "werewolves", "ability": "夜晚击杀一名非狼人玩家"},
@@ -12,18 +13,6 @@ ROLE_DATA: dict[str, dict[str, str]] = {
     "女巫": {"team": "villagers", "ability": "拥有解药和毒药各一瓶"},
     "猎人": {"team": "villagers", "ability": "白天被投票淘汰时可以开枪"},
     "村民": {"team": "villagers", "ability": "通过发言和投票找出狼人"},
-}
-
-CHARACTER_TRAITS: dict[str, str] = {
-    "刘备": "仁德宽厚，善于团结众人",
-    "关羽": "忠义刚烈，言辞直接",
-    "张飞": "豪爽直接，容易冲动",
-    "诸葛亮": "分析透彻，言辞谨慎",
-    "赵云": "忠勇双全，话语简洁",
-    "曹操": "善于权谋，话语犀利",
-    "司马懿": "深谋远虑，言辞含蓄",
-    "周瑜": "才华横溢，分析精准",
-    "孙权": "善于决断，话语果决",
 }
 
 CHARACTER_NAMES = (
@@ -99,10 +88,14 @@ def role_prompt(role: str, character: str) -> str:
         if role == "狼人"
         else "通过发言、技能和投票找出全部狼人"
     )
-    trait = CHARACTER_TRAITS.get(character, "沉着谨慎")
+    profile = character_profile(character)
     ability = ROLE_DATA[role]["ability"]
     return (
         f"你是{character}，本局身份是{role}。目标：{team_goal}。"
-        f"能力：{ability}。人物性格：{trait}。"
+        f"能力：{ability}。人物性格：{profile.temperament}。"
+        f"表达强度：{profile.speech_intensity}/5。句式：{profile.sentence_style}。"
+        f"表达习惯：{profile.rhetorical_habits}。"
+        f"演绎要求：{profile.roleplay_instructions}。"
+        "人物风格只影响表达方式，不得覆盖本局事实、技能结果和阵营目标。"
         "只依据主持人和对话提供的信息判断，不得泄露不应公开的身份信息。"
     )

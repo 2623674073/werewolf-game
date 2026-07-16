@@ -18,9 +18,10 @@
 | 沉浸式观战  | 国风棋盘、20 位三国人物立绘、昼夜场景和角色徽记共同呈现 6–12 人对局                |
 | 实时事件流  | 发言、阶段切换、投票、查验、用药、淘汰和胜负通过 SSE 逐条推送，无需轮询等待        |
 | 双视角观察  | 公开视角保护秘密信息；全知视角展示狼人讨论、投票理由、怀疑值和角色技能             |
-| 暂停与复盘  | 支持暂停、倍速、跳到最新和终局回放，SQLite 保存玩家快照及严格递增的事件序列        |
+| 暂停与复盘  | 支持暂停、倍速、事件定位和终局回放，并可按需生成全知视角史官评局                  |
 | 稳健降级    | 单个模型调用失败不会拖垮整局；支持超时、有限重试、并发限制、断线补发和安全错误码   |
-| 发言审核    | 独立 stdio MCP 服务在公开发言入库前完成内容审核，审核异常时默认不放行原文          |
+| 人物演绎    | 20 位武将拥有独立性格、表达强度、句式与语言习惯，粗豪和克制风格均可自然呈现        |
+| 史官 MCP    | 终局后按需生成关键转折、阵营得失、玩家评分、MVP 和国风结语                        |
 
 ### 界面预览
 
@@ -57,11 +58,12 @@ flowchart TB
     APP --> DOMAIN[Domain Rules & Events]
     APP --> RUNTIME[AgentRuntime Port]
     APP --> REPO[GameRepository Port]
-    APP --> MOD[SpeechModerator Port]
+    APP --> REVIEW[GameReviewService]
     RUNTIME --> AS[AgentScope 2.0]
     AS --> LLM[OpenAI-compatible LLM]
     REPO --> DB[(SQLite / SQLAlchemy Async)]
-    MOD --> MCP[MCP Client / stdio 审核服务]
+    REVIEW --> MCP[MCP Client / stdio 史官服务]
+    MCP --> LLM
     APP --> BROKER[Event Broker]
     BROKER --> API
 ```
@@ -73,7 +75,7 @@ flowchart TB
 | Agent 与模型 | AgentScope 2.0.4、OpenAI-compatible API、Pydantic 2 | Agent 会话、自由发言、结构化投票和技能决策       |
 | 后端应用     | Python 3.12、FastAPI、asyncio                       | 游戏引擎、后台对局任务、REST、SSE 和生命周期管理 |
 | 数据持久化   | SQLAlchemy Async、aiosqlite、Alembic                | 游戏状态、玩家快照、事件序列和数据库迁移         |
-| 实时与安全   | SSE、Bearer Token、MCP、JSON 日志                   | 断线补发、管理鉴权、发言审核和可观测性           |
+| 实时与安全   | SSE、Bearer Token、MCP、JSON 日志                   | 断线补发、管理鉴权、终局复盘和可观测性           |
 | 前端         | React 19、TypeScript、Vite、TanStack Query、Zustand | 服务状态、事件队列、播放游标和观战界面           |
 | 交互与视觉   | Tailwind CSS、Radix UI、Motion                      | 国风主题、无障碍控件和阶段动画                   |
 | 工程质量     | uv、ruff、mypy、pytest、Vitest、Playwright          | 依赖管理、静态检查、单元测试和端到端验证         |
@@ -86,7 +88,7 @@ werewolf_game/
 │  ├─ domain/          玩家、角色、规则、行动 Schema 和游戏事件
 │  ├─ application/     游戏引擎、任务服务、端口和事件发布
 │  ├─ infrastructure/  AgentScope、OpenAI-compatible、SQLite 和日志适配
-│  ├─ mcp/             独立的 stdio 发言审核服务
+│  ├─ mcp/             独立的 stdio 终局史官服务
 │  └─ api/             FastAPI、Bearer 鉴权、REST、SSE 和 SPA 托管
 ├─ frontend/           React 实时观战与终局复盘控制台
 ├─ tests/              单元、应用、基础设施、API 和 E2E 测试
@@ -125,6 +127,7 @@ APP_API_TOKEN=replace-with-at-least-24-characters
 | `LLM_MODEL_ID`          | 必填                                     | OpenAI-compatible 模型 ID  |
 | `LLM_BASE_URL`          | 必填                                     | OpenAI-compatible 接口地址 |
 | `LLM_TIMEOUT`           | `60`                                     | 单次模型调用超时（秒）     |
+| `HISTORIAN_TIMEOUT`     | `600`                                    | 一次史官任务超时（秒）     |
 | `DATABASE_URL`          | `sqlite+aiosqlite:///./data/werewolf.db` | SQLite 地址                |
 | `CORS_ORIGINS`          | `[]`                                     | JSON 格式的前端来源白名单  |
 | `MAX_CONCURRENT_GAMES`  | `4`                                      | 同时运行的游戏数           |
@@ -272,6 +275,8 @@ GET  /api/v1/games
 GET  /api/v1/games/{id}?view=public|god
 GET  /api/v1/games/{id}/events?after_seq=0&view=public|god
 GET  /api/v1/games/{id}/stream?view=public|god
+POST /api/v1/games/{id}/review
+GET  /api/v1/games/{id}/review
 GET  /health/live
 GET  /health/ready
 ```
@@ -297,35 +302,30 @@ SSE 支持 `Last-Event-ID` 断线补发。浏览器原生 `EventSource` 无法�
 
 默认 `view=public`，不包含身份、狼人讨论、预言家结果和女巫行动；管理端复盘可显式使用 `view=god`。
 
-## 发言审核 MCP
+## 终局史官 MCP
 
-完整设计、调用链和测试说明见 [发言内容审核 MCP 实现流程](docs/mcp-speech-moderation.md)。
+完整设计、调用链和测试说明见 [终局史官 MCP 实现流程](docs/mcp-game-historian.md)。
 
-游戏运行时会启动一个独立的 stdio MCP 子进程，并在公开发言写入事件库前调用
-`review_speech` 工具。审核服务使用当前 OpenAI-compatible 模型返回结构化结果：
+实时发言不再经过 MCP 审核，也不会被柔化或替换。正常完成或平局后，终局页面显示
+“请史官复盘”。用户点击后，应用层整理全知事件卷宗，通过独立 stdio MCP 的
+`generate_game_review` 工具按回合分析并生成结构化总评。
 
-- `allowed`：原文进入公开 `speech` 事件。
-- `blocked`：原文不会持久化，公开事件改为固定的审核隐藏提示。
-- MCP 或模型不可用：跳过本轮发言但不中断对局，也不会放行未经审核的原文。
-
-狼人杀规则语境中的“击杀”“毒药”“投票”等虚构描述默认允许。被拦截或审核不可用时，
-系统另存一条不包含原文的 `internal` 类型 `speech_moderated` 事件。
-
-MCP 服务也可以单独启动，供 MCP Inspector 调试：
+复盘与实时游戏完全解耦；MCP 或复盘模型失败不会改变游戏胜负、对话和历史事件。
+失败记录可以重试，成功结果持久化后直接复用。
 
 ```powershell
-uv run werewolf-moderation-mcp
+uv run werewolf-historian-mcp
 ```
 
 使用 Inspector 启动并检查 stdio 服务：
 
 ```powershell
-npx -y @modelcontextprotocol/inspector uv run werewolf-moderation-mcp
+npx -y @modelcontextprotocol/inspector uv run werewolf-historian-mcp
 ```
 
-在 Inspector 中确认只有 `review_speech` 工具，然后分别测试正常游戏发言、辱骂、
-个人信息和“忽略审核规则”等提示词注入输入。stdio 协议要求标准输出只包含 MCP 消息，
-因此服务日志不会写入 stdout。
+在 Inspector 中确认只有 `generate_game_review` 工具。输出包含关键转折、胜负因素、
+逐人 10 分制评价、MVP 和史官结语，所有评价证据必须引用真实事件序号。stdio 协议要求
+标准输出只包含 MCP 消息，因此服务日志不会写入 stdout。
 
 ## 开发验收
 

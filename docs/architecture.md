@@ -7,14 +7,13 @@
 ```text
 FastAPI / CLI
       │
-GameService ── GameEngine ── Domain rules
-      │              ├─ SpeechModerator port
-      │              │          │
-      │              │      MCP Client ── stdio moderation server
+GameService ── GameEngine ── Domain rules / character personas
       │              │
-SQLite repository    AgentRuntime
-      │              │
-   SQLite       AgentScope / OpenAI-compatible API
+      │          AgentRuntime ── AgentScope / OpenAI-compatible API
+      │
+SQLite repository ── GameReviewService
+      │                    │
+   SQLite             MCP Client ── stdio historian server ── LLM
 ```
 
 ## 对局生命周期
@@ -25,6 +24,7 @@ SQLite repository    AgentRuntime
 4. 每次业务变化先持久化，再通过进程内 Broker 推送事件。
 5. 胜负、平局、取消或异常进入终态，释放 Agent 会话并关闭 SSE。
 6. 服务启动时将数据库内遗留的 `running` 游戏标记为 `interrupted`。
+7. 正常终局后，用户可按需创建独立史官任务；复盘不改变游戏状态或 SSE 生命周期。
 
 ## 事件与隐私
 
@@ -37,6 +37,7 @@ SQLite repository    AgentRuntime
 - 初始化、仓储或引擎异常只保存稳定错误码 `game_execution_failed`，不向 API 暴露异常文本。
 - 有界 SSE 队列溢出时断开慢客户端，客户端使用 `Last-Event-ID` 重连补发。
 - 优雅关闭取消运行任务并将其标记为 `interrupted`。
+- 史官任务失败只保存稳定错误码；遗留 `pending` 复盘在重启后标记失败并允许重试。
 
 ## 扩展原则
 

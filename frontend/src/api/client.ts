@@ -1,5 +1,5 @@
-import { gameSchema, sessionSchema } from './schemas'
-import type { ApiErrorBody, Game, Session, ViewMode } from './types'
+import { gameReviewSchema, gameSchema, sessionSchema } from './schemas'
+import type { ApiErrorBody, Game, GameReview, Session, ViewMode } from './types'
 
 export const TOKEN_KEY = 'werewolf.apiToken'
 
@@ -86,4 +86,18 @@ export async function cancelGame(gameId: string): Promise<Game> {
 
 export async function getGame(gameId: string, view: ViewMode): Promise<Game> {
   return gameSchema.parse(await request<unknown>(`/api/v1/games/${gameId}?view=${view}`))
+}
+
+export async function getGameReview(gameId: string): Promise<GameReview> {
+  return gameReviewSchema.parse(
+    await request<unknown>(`/api/v1/games/${gameId}/review`),
+  ) as GameReview
+}
+
+export async function createGameReview(gameId: string): Promise<GameReview> {
+  return gameReviewSchema.parse(
+    await request<unknown>(`/api/v1/games/${gameId}/review`, {
+      method: 'POST',
+    }),
+  ) as GameReview
 }

@@ -3,6 +3,7 @@ import type { components } from './generated'
 export type Game = components['schemas']['GameResponse']
 export type Player = components['schemas']['PlayerResponse']
 export type Session = components['schemas']['SessionResponse']
+export type GameReview = components['schemas']['GameReviewResponse']
 export type ViewMode = 'public' | 'god'
 export type GameStatus = Game['status']
 
