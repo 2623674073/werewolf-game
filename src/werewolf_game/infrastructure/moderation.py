@@ -99,6 +99,7 @@ class McpSpeechModerator:
         self._tool: Any | None = None
         self._connected = False
         self._connection_lock = asyncio.Lock()
+        self._execution_lock = asyncio.Lock()
 
     async def start(self) -> None:
         try:
@@ -107,8 +108,9 @@ class McpSpeechModerator:
             logger.warning("speech moderation MCP unavailable during startup")
 
     async def close(self) -> None:
-        async with self._connection_lock:
-            await self._disconnect()
+        async with self._execution_lock:
+            async with self._connection_lock:
+                await self._disconnect()
 
     async def review_speech(
         self,
@@ -118,28 +120,29 @@ class McpSpeechModerator:
         round_number: int,
         content: str,
     ) -> ModerationDecision:
-        try:
-            await self._ensure_connected()
-            assert self._tool is not None
-            result = await self._tool(
-                player=player,
-                phase=phase,
-                round_number=round_number,
-                content=content,
-            )
-            return await self._parse_result(result)
-        except Exception:
-            logger.warning(
-                "speech moderation MCP call failed",
-                extra={"player": player, "phase": phase},
-            )
-            async with self._connection_lock:
-                await self._disconnect()
-            return ModerationDecision(
-                status=ModerationStatus.UNAVAILABLE,
-                categories=[],
-                reason="moderation_service_unavailable",
-            )
+        async with self._execution_lock:
+            try:
+                await self._ensure_connected()
+                assert self._tool is not None
+                result = await self._tool(
+                    player=player,
+                    phase=phase,
+                    round_number=round_number,
+                    content=content,
+                )
+                return await self._parse_result(result)
+            except Exception:
+                logger.warning(
+                    "speech moderation MCP call failed",
+                    extra={"player": player, "phase": phase},
+                )
+                async with self._connection_lock:
+                    await self._disconnect()
+                return ModerationDecision(
+                    status=ModerationStatus.UNAVAILABLE,
+                    categories=[],
+                    reason="moderation_service_unavailable",
+                )
 
     async def _ensure_connected(self) -> None:
         if self._connected and self._tool is not None:

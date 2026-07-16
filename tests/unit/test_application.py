@@ -339,6 +339,33 @@ async def test_service_enforces_capacity_and_shutdown_marks_interrupted() -> Non
     assert first.status is GameStatus.INTERRUPTED
 
 
+async def test_service_shutdown_interrupts_multiple_games_and_emits_events() -> None:
+    repository = MemoryRepository()
+    events = EventCoordinator(repository, EventBroker())
+    blocker = asyncio.Event()
+
+    class BlockingEngine:
+        async def run(self, game: GameState) -> None:
+            await blocker.wait()
+
+    service = GameService(
+        repository,
+        lambda: BlockingEngine(),
+        max_concurrent_games=2,
+        events=events,
+    )
+    games = [await service.create_game(6) for _ in range(2)]
+    for game in games:
+        await service.start_game(game.id)
+
+    await service.shutdown()
+
+    assert all(game.status is GameStatus.INTERRUPTED for game in games)
+    assert all(
+        repository.events[game.id][-1].type == "game_interrupted" for game in games
+    )
+
+
 async def test_engine_marks_fatal_runtime_failure_without_leaking_exception() -> None:
     repository = MemoryRepository()
     runtime = FakeRuntime()

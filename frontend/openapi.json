@@ -1,0 +1,1229 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Werewolf Game API",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/v1/session": {
+      "get": {
+        "summary": "Get Session",
+        "operationId": "get_session_api_v1_session_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/games": {
+      "post": {
+        "summary": "Create Game",
+        "operationId": "create_game_api_v1_games_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateGameRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GameResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "List Games",
+        "operationId": "list_games_api_v1_games_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GameResponse"
+                  },
+                  "title": "Response List Games Api V1 Games Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/games/{game_id}/start": {
+      "post": {
+        "summary": "Start Game",
+        "operationId": "start_game_api_v1_games__game_id__start_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Game Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GameResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/games/{game_id}/cancel": {
+      "post": {
+        "summary": "Cancel Game",
+        "operationId": "cancel_game_api_v1_games__game_id__cancel_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Game Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GameResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/games/{game_id}": {
+      "get": {
+        "summary": "Get Game",
+        "operationId": "get_game_api_v1_games__game_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Game Id"
+            }
+          },
+          {
+            "name": "view",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": ["public", "god"],
+              "type": "string",
+              "default": "public",
+              "title": "View"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GameResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/games/{game_id}/events": {
+      "get": {
+        "summary": "List Events",
+        "operationId": "list_events_api_v1_games__game_id__events_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Game Id"
+            }
+          },
+          {
+            "name": "after_seq",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "After Seq"
+            }
+          },
+          {
+            "name": "view",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": ["public", "god"],
+              "type": "string",
+              "default": "public",
+              "title": "View"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EventResponse"
+                  },
+                  "title": "Response List Events Api V1 Games  Game Id  Events Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/games/{game_id}/stream": {
+      "get": {
+        "summary": "Stream Events",
+        "operationId": "stream_events_api_v1_games__game_id__stream_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Game Id"
+            }
+          },
+          {
+            "name": "view",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": ["public", "god"],
+              "type": "string",
+              "default": "public",
+              "title": "View"
+            }
+          },
+          {
+            "name": "Last-Event-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Last-Event-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/live": {
+      "get": {
+        "summary": "Live",
+        "operationId": "live_health_live_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Live Health Live Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "summary": "Ready",
+        "operationId": "ready_health_ready_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CreateGameRequest": {
+        "properties": {
+          "player_count": {
+            "type": "integer",
+            "maximum": 12.0,
+            "minimum": 6.0,
+            "title": "Player Count"
+          }
+        },
+        "type": "object",
+        "required": ["player_count"],
+        "title": "CreateGameRequest"
+      },
+      "DayVotePayload": {
+        "properties": {
+          "player": {
+            "type": "string",
+            "title": "Player"
+          },
+          "vote": {
+            "type": "string",
+            "title": "Vote"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "suspicion_level": {
+            "type": "integer",
+            "title": "Suspicion Level"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": ["player", "vote", "reason", "suspicion_level"],
+        "title": "DayVotePayload"
+      },
+      "DiscussionStartedPayload": {
+        "properties": {
+          "discussion_kind": {
+            "type": "string",
+            "title": "Discussion Kind"
+          },
+          "round": {
+            "type": "integer",
+            "title": "Round"
+          },
+          "participants": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Participants"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": ["discussion_kind", "round", "participants"],
+        "title": "DiscussionStartedPayload"
+      },
+      "ErrorPayload": {
+        "properties": {
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "title": "ErrorPayload"
+      },
+      "EventResponse": {
+        "properties": {
+          "game_id": {
+            "type": "string",
+            "title": "Game Id"
+          },
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "identity_assigned",
+              "game_started",
+              "night_started",
+              "day_started",
+              "discussion_started",
+              "speaker_turn_started",
+              "speech",
+              "speech_moderated",
+              "werewolf_vote",
+              "seer_result",
+              "witch_action",
+              "day_vote",
+              "hunter_action",
+              "night_result",
+              "vote_result",
+              "roles_revealed",
+              "game_finished",
+              "game_cancelled",
+              "game_interrupted",
+              "game_failed"
+            ],
+            "title": "Type"
+          },
+          "phase": {
+            "type": "string",
+            "enum": ["setup", "night", "day", "finished"],
+            "title": "Phase"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["public", "private", "internal"],
+            "title": "Visibility"
+          },
+          "recipients": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Recipients"
+          },
+          "payload": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IdentityPayload"
+              },
+              {
+                "$ref": "#/components/schemas/GameStartedPayload"
+              },
+              {
+                "$ref": "#/components/schemas/PhaseStartedPayload"
+              },
+              {
+                "$ref": "#/components/schemas/DiscussionStartedPayload"
+              },
+              {
+                "$ref": "#/components/schemas/SpeakerPayload"
+              },
+              {
+                "$ref": "#/components/schemas/SpeechPayload"
+              },
+              {
+                "$ref": "#/components/schemas/ModeratedSpeechPayload"
+              },
+              {
+                "$ref": "#/components/schemas/WerewolfVotePayload"
+              },
+              {
+                "$ref": "#/components/schemas/SeerResultPayload"
+              },
+              {
+                "$ref": "#/components/schemas/WitchActionPayload"
+              },
+              {
+                "$ref": "#/components/schemas/DayVotePayload"
+              },
+              {
+                "$ref": "#/components/schemas/HunterActionPayload"
+              },
+              {
+                "$ref": "#/components/schemas/NightResultPayload"
+              },
+              {
+                "$ref": "#/components/schemas/VoteResultPayload"
+              },
+              {
+                "$ref": "#/components/schemas/RolesRevealedPayload"
+              },
+              {
+                "$ref": "#/components/schemas/FinishedPayload"
+              },
+              {
+                "$ref": "#/components/schemas/ErrorPayload"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            ],
+            "title": "Payload"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "game_id",
+          "seq",
+          "type",
+          "phase",
+          "visibility",
+          "recipients",
+          "payload",
+          "created_at"
+        ],
+        "title": "EventResponse"
+      },
+      "FinishedPayload": {
+        "properties": {
+          "winner": {
+            "type": "string",
+            "title": "Winner"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": ["winner"],
+        "title": "FinishedPayload"
+      },
+      "GameResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "player_count": {
+            "type": "integer",
+            "title": "Player Count"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "created",
+              "running",
+              "completed",
+              "draw",
+              "cancelled",
+              "interrupted",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "phase": {
+            "type": "string",
+            "enum": ["setup", "night", "day", "finished"],
+            "title": "Phase"
+          },
+          "round_number": {
+            "type": "integer",
+            "title": "Round Number"
+          },
+          "players": {
+            "items": {
+              "$ref": "#/components/schemas/PlayerResponse"
+            },
+            "type": "array",
+            "title": "Players"
+          },
+          "winner": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Winner"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "player_count",
+          "status",
+          "phase",
+          "round_number",
+          "players",
+          "created_at"
+        ],
+        "title": "GameResponse"
+      },
+      "GameStartedPayload": {
+        "properties": {
+          "players": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Players"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": ["players"],
+        "title": "GameStartedPayload"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HunterActionPayload": {
+        "properties": {
+          "player": {
+            "type": "string",
+            "title": "Player"
+          },
+          "shoot": {
+            "type": "boolean",
+            "title": "Shoot"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          },
+          "shoot_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shoot Reason"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": ["player", "shoot"],
+        "title": "HunterActionPayload"
+      },
+      "IdentityPayload": {
+        "properties": {
+          "player": {
+            "type": "string",
+            "title": "Player"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": ["player", "role"],
+        "title": "IdentityPayload"
+      },
+      "ModeratedSpeechPayload": {
+        "properties": {
+          "player": {
+            "type": "string",
+            "title": "Player"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["blocked", "unavailable"],
+            "title": "Status"
+          },
+          "categories": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Categories"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": ["player", "status", "categories"],
+        "title": "ModeratedSpeechPayload"
+      },
+      "NightResultPayload": {
+        "properties": {
+          "deaths": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Deaths"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": ["deaths"],
+        "title": "NightResultPayload"
+      },
+      "PhaseStartedPayload": {
+        "properties": {
+          "round": {
+            "type": "integer",
+            "title": "Round"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": ["round"],
+        "title": "PhaseStartedPayload"
+      },
+      "PlayerResponse": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "character": {
+            "type": "string",
+            "title": "Character"
+          },
+          "is_alive": {
+            "type": "boolean",
+            "title": "Is Alive"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          },
+          "has_antidote": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Has Antidote"
+          },
+          "has_poison": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Has Poison"
+          }
+        },
+        "type": "object",
+        "required": ["name", "character", "is_alive"],
+        "title": "PlayerResponse"
+      },
+      "RevealedRole": {
+        "properties": {
+          "player": {
+            "type": "string",
+            "title": "Player"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          }
+        },
+        "type": "object",
+        "required": ["player", "role"],
+        "title": "RevealedRole"
+      },
+      "RolesRevealedPayload": {
+        "properties": {
+          "players": {
+            "items": {
+              "$ref": "#/components/schemas/RevealedRole"
+            },
+            "type": "array",
+            "title": "Players"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": ["players"],
+        "title": "RolesRevealedPayload"
+      },
+      "SeerResultPayload": {
+        "properties": {
+          "target": {
+            "type": "string",
+            "title": "Target"
+          },
+          "is_werewolf": {
+            "type": "boolean",
+            "title": "Is Werewolf"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": ["target", "is_werewolf"],
+        "title": "SeerResultPayload"
+      },
+      "SessionResponse": {
+        "properties": {
+          "authenticated": {
+            "type": "boolean",
+            "const": true,
+            "title": "Authenticated",
+            "default": true
+          },
+          "capabilities": {
+            "items": {
+              "type": "string",
+              "enum": ["control", "public_view", "god_view"]
+            },
+            "type": "array",
+            "title": "Capabilities"
+          }
+        },
+        "type": "object",
+        "required": ["capabilities"],
+        "title": "SessionResponse"
+      },
+      "SpeakerPayload": {
+        "properties": {
+          "player": {
+            "type": "string",
+            "title": "Player"
+          },
+          "round": {
+            "type": "integer",
+            "title": "Round"
+          },
+          "discussion_round": {
+            "type": "integer",
+            "title": "Discussion Round"
+          },
+          "discussion_kind": {
+            "type": "string",
+            "title": "Discussion Kind"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": ["player", "round", "discussion_round", "discussion_kind"],
+        "title": "SpeakerPayload"
+      },
+      "SpeechPayload": {
+        "properties": {
+          "player": {
+            "type": "string",
+            "title": "Player"
+          },
+          "round": {
+            "type": "integer",
+            "title": "Round"
+          },
+          "discussion_round": {
+            "type": "integer",
+            "title": "Discussion Round"
+          },
+          "discussion_kind": {
+            "type": "string",
+            "title": "Discussion Kind"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": ["player", "round", "discussion_round", "discussion_kind", "content"],
+        "title": "SpeechPayload"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": ["loc", "msg", "type"],
+        "title": "ValidationError"
+      },
+      "VoteResultPayload": {
+        "properties": {
+          "voted_out": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voted Out"
+          },
+          "votes": {
+            "type": "integer",
+            "title": "Votes"
+          },
+          "hunter_shot": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hunter Shot"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": ["voted_out", "votes", "hunter_shot"],
+        "title": "VoteResultPayload"
+      },
+      "WerewolfVotePayload": {
+        "properties": {
+          "player": {
+            "type": "string",
+            "title": "Player"
+          },
+          "target": {
+            "type": "string",
+            "title": "Target"
+          },
+          "kill_strategy": {
+            "type": "string",
+            "title": "Kill Strategy"
+          },
+          "team_coordination": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Coordination"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": ["player", "target", "kill_strategy"],
+        "title": "WerewolfVotePayload"
+      },
+      "WitchActionPayload": {
+        "properties": {
+          "player": {
+            "type": "string",
+            "title": "Player"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "target_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Name"
+          },
+          "action_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action Reason"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": ["player", "action"],
+        "title": "WitchActionPayload"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  }
+}

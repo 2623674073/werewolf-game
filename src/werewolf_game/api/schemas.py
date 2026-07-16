@@ -63,11 +63,11 @@ class GameResponse(BaseModel):
     phase: PhaseValue
     round_number: int
     players: list[PlayerResponse]
-    winner: str | None
-    error_code: str | None
+    winner: str | None = None
+    error_code: str | None = None
     created_at: str
-    started_at: str | None
-    finished_at: str | None
+    started_at: str | None = None
+    finished_at: str | None = None
 
 
 class SessionResponse(BaseModel):

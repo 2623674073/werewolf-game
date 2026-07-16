@@ -106,10 +106,14 @@ def create_app(components: AppComponents | None = None) -> FastAPI:
         try:
             yield
         finally:
-            await components.service.shutdown()
-            if components.moderator is not None:
-                await components.moderator.close()
-            await components.database.dispose()
+            try:
+                await components.service.shutdown()
+            finally:
+                try:
+                    if components.moderator is not None:
+                        await components.moderator.close()
+                finally:
+                    await components.database.dispose()
 
     app = FastAPI(title="Werewolf Game API", version="1.0.0", lifespan=lifespan)
     app.state.components = components
@@ -312,7 +316,26 @@ async def _event_stream(
         for event in history:
             last_seq = max(last_seq, event.seq)
             yield _sse(event)
+        terminal_event_types = {
+            "game_finished",
+            "game_cancelled",
+            "game_interrupted",
+            "game_failed",
+        }
+        if any(event.type in terminal_event_types for event in history):
+            return
         if game.status not in {GameStatus.CREATED, GameStatus.RUNNING}:
+            # A terminal snapshot may become visible just before its final event is
+            # committed. Give that short transaction window one final database read,
+            # while still allowing legacy terminal games without a closing event.
+            await asyncio.sleep(0.05)
+            tail = await components.repository.list_events(
+                game.id, last_seq, include_private
+            )
+            for trailing_event in tail:
+                if trailing_event.seq > last_seq:
+                    last_seq = trailing_event.seq
+                    yield _sse(trailing_event)
             return
         while True:
             try:
@@ -321,6 +344,13 @@ async def _event_stream(
                 yield ": keep-alive\n\n"
                 continue
             except StopAsyncIteration:
+                tail = await components.repository.list_events(
+                    game.id, last_seq, include_private
+                )
+                for trailing_event in tail:
+                    if trailing_event.seq > last_seq:
+                        last_seq = trailing_event.seq
+                        yield _sse(trailing_event)
                 return
             if event.seq > last_seq:
                 last_seq = event.seq

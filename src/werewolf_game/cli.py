@@ -56,6 +56,7 @@ def server_main(argv: Sequence[str] | None = None) -> None:
         host=args.host or settings.host,
         port=args.port or settings.port,
         reload=args.reload,
+        reload_dirs=["src"] if args.reload else None,
         log_config=None,
     )
 

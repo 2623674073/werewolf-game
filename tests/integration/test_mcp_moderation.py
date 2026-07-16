@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from types import SimpleNamespace
 from typing import Any
@@ -152,3 +153,43 @@ async def test_mcp_client_reuses_connection_and_falls_back_when_tool_fails() -> 
         player="刘备", phase="day", round_number=2, content="再次发言"
     )
     assert failing_client.connect_calls == 2
+
+
+async def test_mcp_client_serializes_concurrent_game_reviews() -> None:
+    class ConcurrentClient(FakeMcpClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.active_calls = 0
+            self.max_active_calls = 0
+
+        async def get_tool(self, name: str) -> Any:
+            assert name == "review_speech"
+
+            async def tool(**_: Any) -> ToolChunk:
+                self.active_calls += 1
+                self.max_active_calls = max(self.max_active_calls, self.active_calls)
+                await asyncio.sleep(0.01)
+                self.active_calls -= 1
+                decision = ModerationDecision(status=ModerationStatus.ALLOWED)
+                return ToolChunk(content=[TextBlock(text=decision.model_dump_json())])
+
+            return tool
+
+    client = ConcurrentClient()
+    moderator = McpSpeechModerator(
+        execution_timeout=1,
+        client=client,  # type: ignore[arg-type]
+    )
+
+    results = await asyncio.gather(
+        moderator.review_speech(
+            player="刘备", phase="day", round_number=1, content="第一局发言"
+        ),
+        moderator.review_speech(
+            player="曹操", phase="day", round_number=1, content="第二局发言"
+        ),
+    )
+    await moderator.close()
+
+    assert all(result.status is ModerationStatus.ALLOWED for result in results)
+    assert client.max_active_calls == 1

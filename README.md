@@ -21,10 +21,12 @@ src/werewolf_game/
 
 - Python 3.12
 - uv
+- Node.js 20+ 与 npm
 - 支持工具调用的 OpenAI-compatible 模型接口
 
 ```powershell
 uv sync --group dev
+npm ci
 Copy-Item .env.example .env
 ```
 
@@ -49,6 +51,7 @@ APP_API_TOKEN=replace-with-at-least-24-characters
 | `MAX_CONCURRENT_GAMES` | `4` | 同时运行的游戏数 |
 | `MAX_MODEL_CONCURRENCY` | `8` | 同时执行的模型调用数 |
 | `MODEL_MAX_RETRIES` | `2` | 模型调用重试次数 |
+| `WEB_DIST_DIR` | `frontend/dist` | FastAPI 托管的前端构建目录 |
 
 密钥不会写入 API 响应或结构化日志。启动时只输出 API Key 后四位。
 
@@ -65,6 +68,27 @@ uv run alembic upgrade head
 ```powershell
 uv run werewolf-server --host 127.0.0.1 --port 8000
 ```
+
+### Web 观战控制台
+
+开发时可在项目根目录一键启动 FastAPI 与 Vite：
+
+```powershell
+npm run dev
+```
+
+浏览器访问 `http://127.0.0.1:5173`，输入 `.env` 中的 `APP_API_TOKEN`。令牌只保存在当前标签页的 `sessionStorage` 中。控制台支持创建与启动对局、公开/全知视角、实时对话、暂停与倍速播放、跳到最新和终局复盘。
+
+`npm run dev` 会启用后端热重载，并且只监控 `src/`。开发过程中修改后端源码会重启服务，当前对局将标记为 `interrupted`，前端会短暂显示“正在重连”。需要长时间稳定演示多局时，请使用下面的生产启动方式。
+
+生产运行时先构建前端，再由 FastAPI 同时托管 SPA 和 API：
+
+```powershell
+npm run build
+uv run werewolf-server --host 127.0.0.1 --port 8000
+```
+
+此时直接访问 `http://127.0.0.1:8000`。前端包含 20 位三国人物立绘、5 类身份视觉标识，以及昼、夜、终局三套场景。
 
 直接运行一局：
 
@@ -96,6 +120,7 @@ Authorization: Bearer <APP_API_TOKEN>
 
 ```text
 POST /api/v1/games
+GET  /api/v1/session
 POST /api/v1/games/{id}/start
 POST /api/v1/games/{id}/cancel
 GET  /api/v1/games
@@ -164,6 +189,11 @@ uv run ruff check .
 uv run ruff format --check .
 uv run mypy src
 uv run pytest --cov=werewolf_game --cov-fail-under=85
+npm run lint
+npm run typecheck
+npm run test:coverage
+npm run build
+npm run e2e
 ```
 
 测试默认使用假模型，不访问外部模型服务。真实模型冒烟必须显式设置 `RUN_LIVE_TESTS=1`，并遵守先输出模型名、Base URL 和脱敏 Key 后缀的约定。结构化投票依赖接口支持 `tools` 和 `tool_choice`。

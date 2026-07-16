@@ -10,3 +10,11 @@ htmlcov/
 data/
 *.db
 *.sqlite3
+AGENTS.md
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+frontend/playwright-report/
+frontend/test-results/
+image-artifacts/
