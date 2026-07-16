@@ -1,10 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Eye, EyeOff, LogOut, Radio, XCircle } from 'lucide-react'
+import { ArrowLeft, Eye, EyeOff, LogOut, Radio, Trash2, XCircle } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 
-import { ApiError, cancelGame, createGameReview, getGame, getGameReview } from '../api/client'
-import type { ViewMode } from '../api/types'
+import {
+  ApiError,
+  cancelGame,
+  createGameReview,
+  deleteGame,
+  getGame,
+  getGameReview,
+} from '../api/client'
+import type { GameStatus, ViewMode } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { EventTimeline } from '../components/EventTimeline'
@@ -41,6 +48,15 @@ export function GamePage() {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['game', gameId] })
       await queryClient.invalidateQueries({ queryKey: ['games'] })
+    },
+  })
+  const deletion = useMutation({
+    mutationFn: () => deleteGame(gameId),
+    onSuccess: async () => {
+      queryClient.removeQueries({ queryKey: ['game', gameId] })
+      queryClient.removeQueries({ queryKey: ['game-review', gameId] })
+      await queryClient.invalidateQueries({ queryKey: ['games'] })
+      navigate('/games', { replace: true })
     },
   })
   const reviewable = gameQuery.data?.status === 'completed' || gameQuery.data?.status === 'draw'
@@ -117,6 +133,20 @@ export function GamePage() {
             onConfirm={() => cancellation.mutate()}
           />
         )}
+        {isDeletable(game.status) && (
+          <ConfirmDialog
+            trigger={
+              <button className="button danger compact" disabled={deletion.isPending}>
+                <Trash2 size={15} />
+                {deletion.isPending ? '正在删除' : '删除对局'}
+              </button>
+            }
+            title="永久删除这局推演？"
+            description="本局对话、身份、技能事件和史官复盘都会被永久删除，且无法恢复。"
+            confirmLabel="永久删除"
+            onConfirm={() => deletion.mutate()}
+          />
+        )}
         <button
           className="icon-button"
           onClick={() => {
@@ -128,6 +158,11 @@ export function GamePage() {
           <LogOut size={17} />
         </button>
       </header>
+      {deletion.error && (
+        <div className="notice action-notice">
+          {deletion.error instanceof ApiError ? deletion.error.message : '删除对局失败'}
+        </div>
+      )}
       <div className="game-workspace">
         <PlayerBoard
           players={game.players}
@@ -157,6 +192,10 @@ export function GamePage() {
       )}
     </main>
   )
+}
+
+function isDeletable(status: GameStatus): boolean {
+  return ['completed', 'draw', 'cancelled', 'interrupted', 'failed'].includes(status)
 }
 
 function connectionLabel(state: string): string {

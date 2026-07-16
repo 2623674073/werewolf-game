@@ -4,11 +4,14 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from httpx import ASGITransport, AsyncClient
 
 import werewolf_game.api.app as api_app
 from werewolf_game.api.app import AppComponents, create_app
+from werewolf_game.application.errors import ConflictError
 from werewolf_game.application.events import EventBroker
+from werewolf_game.application.locks import GameOperationLocks
 from werewolf_game.application.review_service import GameReviewService
 from werewolf_game.application.service import GameService
 from werewolf_game.config import Settings
@@ -20,7 +23,7 @@ from werewolf_game.domain.models import (
     Phase,
     Visibility,
 )
-from werewolf_game.domain.reviews import GameDossier, GameReviewResult
+from werewolf_game.domain.reviews import GameDossier, GameReview, GameReviewResult
 from werewolf_game.infrastructure.database import Database
 from werewolf_game.infrastructure.repository import SqliteGameRepository
 
@@ -88,8 +91,18 @@ async def make_client(
     await database.create_schema()
     repository = SqliteGameRepository(database.session_factory)
     broker = EventBroker()
-    service = GameService(repository, lambda: InstantEngine(), max_concurrent_games=2)
-    review_service = GameReviewService(repository, FakeHistorian())
+    operation_locks = GameOperationLocks()
+    service = GameService(
+        repository,
+        lambda: InstantEngine(),
+        max_concurrent_games=2,
+        operation_locks=operation_locks,
+    )
+    review_service = GameReviewService(
+        repository,
+        FakeHistorian(),
+        operation_locks=operation_locks,
+    )
     app = create_app(
         AppComponents(
             settings,
@@ -306,6 +319,132 @@ async def test_openapi_exposes_typed_session_game_and_event_contracts(
         event_type = components["EventResponse"]["properties"]["type"]
         assert "speech" in event_type["enum"]
         assert "roles_revealed" in event_type["enum"]
+        assert "delete" in schema["paths"]["/api/v1/games/{game_id}"]
+    await database.dispose()
+
+
+async def test_delete_terminal_game_removes_events_and_review(tmp_path: Path) -> None:
+    client, database, repository = await make_client(tmp_path)
+    game = GameState(
+        id="deletable",
+        player_count=6,
+        status=GameStatus.COMPLETED,
+        phase=Phase.FINISHED,
+    )
+    await repository.create_game(game)
+    await repository.append_event(
+        GameEvent(
+            game.id,
+            0,
+            "game_finished",
+            Phase.FINISHED,
+            Visibility.PUBLIC,
+            (),
+            {"winner": "villagers"},
+        )
+    )
+
+    async with client:
+        unauthorized = await client.delete(f"/api/v1/games/{game.id}")
+        assert unauthorized.status_code == 401
+        deleted = await client.delete(f"/api/v1/games/{game.id}", headers=auth())
+        assert deleted.status_code == 204
+        assert not deleted.content
+        snapshot = await client.get(f"/api/v1/games/{game.id}", headers=auth())
+        assert snapshot.status_code == 404
+        assert (
+            await client.get(f"/api/v1/games/{game.id}/events", headers=auth())
+        ).status_code == 404
+        assert (
+            await client.get(f"/api/v1/games/{game.id}/review", headers=auth())
+        ).status_code == 404
+        repeated = await client.delete(f"/api/v1/games/{game.id}", headers=auth())
+        assert repeated.status_code == 404
+    await database.dispose()
+
+
+async def test_delete_rejects_running_game_and_pending_review(tmp_path: Path) -> None:
+    client, database, repository = await make_client(tmp_path)
+    running = GameState(id="running-delete", player_count=6, status=GameStatus.RUNNING)
+    review_pending = GameState(
+        id="pending-review-delete",
+        player_count=6,
+        status=GameStatus.DRAW,
+        phase=Phase.FINISHED,
+    )
+    await repository.create_game(running)
+    await repository.create_game(review_pending)
+    await repository.create_review(GameReview(game_id=review_pending.id))
+
+    async with client:
+        rejected = await client.delete(f"/api/v1/games/{running.id}", headers=auth())
+        assert rejected.status_code == 409
+        assert rejected.json()["error"]["code"] == "game_not_deletable"
+        pending = await client.delete(
+            f"/api/v1/games/{review_pending.id}", headers=auth()
+        )
+        assert pending.status_code == 409
+        assert pending.json()["error"]["code"] == "review_in_progress"
+    await database.dispose()
+
+
+async def test_review_creation_and_delete_are_serialized(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'serialized.db'}")
+    await database.create_schema()
+    repository = SqliteGameRepository(database.session_factory)
+    game = GameState(
+        id="serialized",
+        player_count=6,
+        status=GameStatus.COMPLETED,
+        phase=Phase.FINISHED,
+    )
+    await repository.create_game(game)
+    operation_locks = GameOperationLocks()
+    service = GameService(
+        repository,
+        lambda: InstantEngine(),
+        max_concurrent_games=1,
+        operation_locks=operation_locks,
+    )
+
+    class WaitingHistorian:
+        async def generate_review(self, dossier: GameDossier) -> GameReviewResult:
+            await asyncio.Event().wait()
+            raise AssertionError("unreachable")
+
+    review_service = GameReviewService(
+        repository,
+        WaitingHistorian(),
+        operation_locks=operation_locks,
+    )
+    create_started = asyncio.Event()
+    release_create = asyncio.Event()
+    original_create = repository.create_review
+
+    async def delayed_create(review: GameReview) -> GameReview:
+        create_started.set()
+        await release_create.wait()
+        return await original_create(review)
+
+    monkeypatch.setattr(repository, "create_review", delayed_create)
+    review_request = asyncio.create_task(review_service.request_review(game.id))
+    await create_started.wait()
+    delete_request = asyncio.create_task(service.delete_game(game.id))
+    await asyncio.sleep(0)
+    assert not delete_request.done()
+
+    release_create.set()
+    assert (await review_request).status.value == "pending"
+    with pytest.raises(ConflictError) as error:
+        await delete_request
+    assert error.value.code == "review_in_progress"
+    assert await repository.get_game(game.id) is not None
+
+    await review_service.shutdown()
+    await database.dispose()
     await database.dispose()
 
 

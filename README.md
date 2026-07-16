@@ -22,6 +22,7 @@
 | 稳健降级    | 单个模型调用失败不会拖垮整局；支持超时、有限重试、并发限制、断线补发和安全错误码   |
 | 人物演绎    | 20 位武将拥有独立性格、表达强度、句式与语言习惯，粗豪和克制风格均可自然呈现        |
 | 史官 MCP    | 终局后按需生成关键转折、阵营得失、玩家评分、MVP 和国风结语                        |
+| 对局管理    | 已结束卷宗可经二次确认永久删除，并级联清理完整事件与史官复盘                     |
 
 ### 界面预览
 
@@ -273,6 +274,7 @@ POST /api/v1/games/{id}/start
 POST /api/v1/games/{id}/cancel
 GET  /api/v1/games
 GET  /api/v1/games/{id}?view=public|god
+DELETE /api/v1/games/{id}
 GET  /api/v1/games/{id}/events?after_seq=0&view=public|god
 GET  /api/v1/games/{id}/stream?view=public|god
 POST /api/v1/games/{id}/review
@@ -280,6 +282,10 @@ GET  /api/v1/games/{id}/review
 GET  /health/live
 GET  /health/ready
 ```
+
+删除接口只接受 `completed`、`draw`、`cancelled`、`interrupted` 和 `failed`
+状态。`created`、`running` 或正在生成史官复盘的对局会返回 `409`；删除成功返回
+`204`，并永久清除对局、全部公开/私密事件和复盘结果。
 
 创建并启动游戏：
 

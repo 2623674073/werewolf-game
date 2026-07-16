@@ -92,3 +92,36 @@ async def test_repository_persists_reviews_and_marks_stale_pending(
     assert failed.status is ReviewStatus.FAILED
     assert failed.error_code == "service_restarted"
     await database.dispose()
+
+
+async def test_delete_game_cascades_events_and_review(tmp_path: Path) -> None:
+    database = Database(f"sqlite+aiosqlite:///{tmp_path / 'delete.db'}")
+    await database.create_schema()
+    repository = SqliteGameRepository(database.session_factory)
+    game = GameState(id="delete-me", player_count=6, status=GameStatus.COMPLETED)
+    await repository.create_game(game)
+    await repository.append_event(
+        GameEvent(
+            game.id,
+            0,
+            "game_finished",
+            Phase.FINISHED,
+            Visibility.PUBLIC,
+            (),
+            {},
+        )
+    )
+    await repository.create_review(GameReview(game_id=game.id))
+
+    assert await repository.delete_game(game.id) is True
+    assert await repository.delete_game(game.id) is False
+    assert await repository.get_game(game.id) is None
+    assert await repository.list_events(game.id, 0, True) == []
+    assert await repository.get_review(game.id) is None
+
+    async with database.engine.connect() as connection:
+        foreign_keys = await connection.execute(
+            text("PRAGMA foreign_key_list(game_events)")
+        )
+        assert any(row[2] == "games" and row[6] == "CASCADE" for row in foreign_keys)
+    await database.dispose()

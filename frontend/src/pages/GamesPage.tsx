@@ -1,11 +1,13 @@
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowRight, LogOut, Play, Plus, RefreshCw, Swords } from 'lucide-react'
+import type { InfiniteData } from '@tanstack/react-query'
+import { ArrowRight, LogOut, Play, Plus, RefreshCw, Swords, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-import { ApiError, createGame, listGames, startGame } from '../api/client'
+import { ApiError, createGame, deleteGame, listGames, startGame } from '../api/client'
 import type { Game, GameStatus } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 
 const PAGE_SIZE = 20
 
@@ -39,6 +41,24 @@ export function GamesPage() {
       void queryClient.invalidateQueries({ queryKey: ['games'] })
       if (result.started) navigate(`/games/${result.game.id}`)
       else setNotice(`对局已创建，但启动失败：${errorText(result.error)}`)
+    },
+    onError(error) {
+      setNotice(errorText(error))
+    },
+  })
+  const deletion = useMutation({
+    mutationFn: (gameId: string) => deleteGame(gameId),
+    onSuccess: async (_, gameId) => {
+      queryClient.setQueryData<InfiniteData<Game[]>>(['games'], (current) =>
+        current
+          ? {
+              ...current,
+              pages: current.pages.map((page) => page.filter((game) => game.id !== gameId)),
+            }
+          : current,
+      )
+      await queryClient.invalidateQueries({ queryKey: ['games'] })
+      setNotice('对局卷宗已永久删除。')
     },
     onError(error) {
       setNotice(errorText(error))
@@ -151,6 +171,8 @@ export function GamesPage() {
                 game={game}
                 onOpen={() => navigate(`/games/${game.id}`)}
                 onStart={() => void retry(game)}
+                onDelete={() => deletion.mutate(game.id)}
+                deleting={deletion.isPending && deletion.variables === game.id}
               />
             ))}
           </div>
@@ -168,15 +190,20 @@ export function GamesPage() {
   )
 }
 
-function GameCard({
+export function GameCard({
   game,
   onOpen,
   onStart,
+  onDelete,
+  deleting,
 }: {
   game: Game
   onOpen: () => void
   onStart: () => void
+  onDelete: () => void
+  deleting: boolean
 }) {
+  const deletable = isDeletable(game.status)
   return (
     <article className="game-card">
       <div className="game-card-art">
@@ -200,22 +227,45 @@ function GameCard({
           第 {game.round_number} 回合 · {phaseLabel(game.phase)}
           {game.winner ? ` · ${winnerLabel(game.winner)}` : ''}
         </p>
-        <button className="card-action" onClick={game.status === 'created' ? onStart : onOpen}>
-          {game.status === 'created' ? (
-            <>
-              <Play size={16} />
-              继续启动
-            </>
-          ) : (
-            <>
-              进入观战
-              <ArrowRight size={16} />
-            </>
+        <div className="card-actions">
+          <button className="card-action" onClick={game.status === 'created' ? onStart : onOpen}>
+            {game.status === 'created' ? (
+              <>
+                <Play size={16} />
+                继续启动
+              </>
+            ) : (
+              <>
+                进入观战
+                <ArrowRight size={16} />
+              </>
+            )}
+          </button>
+          {deletable && (
+            <ConfirmDialog
+              trigger={
+                <button
+                  className="card-delete"
+                  disabled={deleting}
+                  aria-label={`删除第 ${game.id.slice(0, 8)} 号推演`}
+                >
+                  <Trash2 size={15} />
+                </button>
+              }
+              title="永久删除这局推演？"
+              description="本局对话、身份、技能事件和史官复盘都会被永久删除，且无法恢复。"
+              confirmLabel="永久删除"
+              onConfirm={onDelete}
+            />
           )}
-        </button>
+        </div>
       </div>
     </article>
   )
+}
+
+function isDeletable(status: GameStatus): boolean {
+  return ['completed', 'draw', 'cancelled', 'interrupted', 'failed'].includes(status)
 }
 
 function statusLabel(status: GameStatus): string {

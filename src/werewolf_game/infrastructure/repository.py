@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import cast
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from werewolf_game.domain.models import (
@@ -44,6 +44,12 @@ class SqliteGameRepository:
                 )
             ).all()
             return [_row_to_game(row) for row in rows]
+
+    async def delete_game(self, game_id: str) -> bool:
+        async with self.session_factory() as session:
+            result = await session.execute(delete(GameRow).where(GameRow.id == game_id))
+            await session.commit()
+            return bool(result.rowcount)  # type: ignore[attr-defined]
 
     async def save_game(self, game: GameState) -> None:
         values = _game_values(game)

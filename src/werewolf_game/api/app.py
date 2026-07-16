@@ -33,6 +33,7 @@ from werewolf_game.application.errors import (
     NotFoundError,
 )
 from werewolf_game.application.events import EventBroker, EventCoordinator
+from werewolf_game.application.locks import GameOperationLocks
 from werewolf_game.application.review_service import GameReviewService
 from werewolf_game.application.service import GameService
 from werewolf_game.config import Settings
@@ -90,13 +91,19 @@ def build_components(settings: Settings | None = None) -> AppComponents:
     )
     historian = McpGameHistorian(execution_timeout=settings.historian_timeout)
     events = EventCoordinator(repository, broker)
+    operation_locks = GameOperationLocks()
     service = GameService(
         repository,
         lambda: GameEngine(runtime, repository, events),
         max_concurrent_games=settings.max_concurrent_games,
         events=events,
+        operation_locks=operation_locks,
     )
-    review_service = GameReviewService(repository, historian)
+    review_service = GameReviewService(
+        repository,
+        historian,
+        operation_locks=operation_locks,
+    )
     return AppComponents(
         settings,
         database,
@@ -135,7 +142,7 @@ def create_app(components: AppComponents | None = None) -> FastAPI:
         CORSMiddleware,
         allow_origins=components.settings.cors_origins,
         allow_credentials=True,
-        allow_methods=["GET", "POST"],
+        allow_methods=["GET", "POST", "DELETE"],
         allow_headers=[
             "Authorization",
             "Content-Type",
@@ -262,6 +269,11 @@ def create_app(components: AppComponents | None = None) -> FastAPI:
         return _game_response(
             await components.service.require_game(game_id), god_view=view == "god"
         )
+
+    @router.delete("/games/{game_id}", status_code=204)
+    async def delete_game(game_id: str) -> Response:
+        await components.service.delete_game(game_id)
+        return Response(status_code=204)
 
     @router.get("/games/{game_id}/events", response_model=list[EventResponse])
     async def list_events(

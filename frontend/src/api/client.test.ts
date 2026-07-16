@@ -5,6 +5,7 @@ import {
   cancelGame,
   clearToken,
   createGame,
+  deleteGame,
   getGame,
   getToken,
   listGames,
@@ -53,6 +54,7 @@ describe('api client', () => {
       .mockResolvedValueOnce(response(game))
       .mockResolvedValueOnce(response(game))
       .mockResolvedValueOnce(response(game))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
     vi.stubGlobal('fetch', fetchMock)
     await validateSession()
     await listGames()
@@ -60,7 +62,8 @@ describe('api client', () => {
     await startGame('g')
     await cancelGame('g')
     await getGame('g', 'god')
-    expect(fetchMock).toHaveBeenCalledTimes(6)
+    await deleteGame('g')
+    expect(fetchMock).toHaveBeenCalledTimes(7)
     expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
       Authorization: 'Bearer secret',
     })
@@ -69,6 +72,7 @@ describe('api client', () => {
       body: JSON.stringify({ player_count: 6 }),
     })
     expect(fetchMock.mock.calls[5]?.[0]).toContain('view=god')
+    expect(fetchMock.mock.calls[6]?.[1]).toMatchObject({ method: 'DELETE' })
   })
 
   it('normalizes structured and non-json errors', async () => {

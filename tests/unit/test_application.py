@@ -9,11 +9,12 @@ import pytest
 from pydantic import BaseModel
 
 from werewolf_game.application.engine import GameEngine
-from werewolf_game.application.errors import CapacityError, NotFoundError
+from werewolf_game.application.errors import CapacityError, ConflictError, NotFoundError
 from werewolf_game.application.events import EventBroker, EventCoordinator
 from werewolf_game.application.ports import DiscussionActivity
 from werewolf_game.application.service import GameService
 from werewolf_game.domain.models import GameEvent, GameState, GameStatus, Visibility
+from werewolf_game.domain.reviews import GameReview
 
 
 class MemoryRepository:
@@ -30,6 +31,12 @@ class MemoryRepository:
 
     async def list_games(self, offset: int, limit: int) -> list[GameState]:
         return list(self.games.values())[offset : offset + limit]
+
+    async def delete_game(self, game_id: str) -> bool:
+        if self.games.pop(game_id, None) is None:
+            return False
+        self.events.pop(game_id, None)
+        return True
 
     async def save_game(self, game: GameState) -> None:
         self.games[game.id] = game
@@ -61,6 +68,9 @@ class MemoryRepository:
 
     async def mark_running_interrupted(self) -> int:
         return 0
+
+    async def get_review(self, game_id: str) -> GameReview | None:
+        return None
 
     async def ping(self) -> bool:
         return True
@@ -259,6 +269,40 @@ async def test_service_enforces_capacity_and_shutdown_marks_interrupted() -> Non
 
     await service.shutdown()
     assert first.status is GameStatus.INTERRUPTED
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        GameStatus.COMPLETED,
+        GameStatus.DRAW,
+        GameStatus.CANCELLED,
+        GameStatus.INTERRUPTED,
+        GameStatus.FAILED,
+    ],
+)
+async def test_service_deletes_terminal_games(status: GameStatus) -> None:
+    repository = MemoryRepository()
+    game = GameState(id=status.value, player_count=6, status=status)
+    await repository.create_game(game)
+    service = GameService(repository, lambda: FakeRuntime(), max_concurrent_games=1)
+
+    await service.delete_game(game.id)
+
+    assert await repository.get_game(game.id) is None
+
+
+@pytest.mark.parametrize("status", [GameStatus.CREATED, GameStatus.RUNNING])
+async def test_service_rejects_deleting_non_terminal_games(status: GameStatus) -> None:
+    repository = MemoryRepository()
+    game = GameState(id=status.value, player_count=6, status=status)
+    await repository.create_game(game)
+    service = GameService(repository, lambda: FakeRuntime(), max_concurrent_games=1)
+
+    with pytest.raises(ConflictError, match="只有已结束") as error:
+        await service.delete_game(game.id)
+
+    assert error.value.code == "game_not_deletable"
 
 
 async def test_service_shutdown_interrupts_multiple_games_and_emits_events() -> None:

@@ -34,7 +34,9 @@ class EventRow(Base):
     __table_args__ = (UniqueConstraint("game_id", "seq"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    game_id: Mapped[str] = mapped_column(String(36), index=True)
+    game_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("games.id", ondelete="CASCADE"), index=True
+    )
     seq: Mapped[int] = mapped_column(Integer)
     type: Mapped[str] = mapped_column(String(64), index=True)
     phase: Mapped[str] = mapped_column(String(20))

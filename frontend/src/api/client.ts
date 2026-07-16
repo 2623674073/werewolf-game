@@ -50,6 +50,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
       body.error?.request_id,
     )
   }
+  if (response.status === 204) return undefined as T
   return (await response.json()) as T
 }
 
@@ -82,6 +83,10 @@ export async function cancelGame(gameId: string): Promise<Game> {
   return gameSchema.parse(
     await request<unknown>(`/api/v1/games/${gameId}/cancel`, { method: 'POST' }),
   )
+}
+
+export async function deleteGame(gameId: string): Promise<void> {
+  await request<void>(`/api/v1/games/${gameId}`, { method: 'DELETE' })
 }
 
 export async function getGame(gameId: string, view: ViewMode): Promise<Game> {

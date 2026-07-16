@@ -5,6 +5,7 @@ import logging
 from datetime import UTC, datetime
 
 from werewolf_game.application.errors import ConflictError, NotFoundError
+from werewolf_game.application.locks import GameOperationLocks
 from werewolf_game.application.ports import GameHistorian, GameRepository
 from werewolf_game.domain.models import GameState, GameStatus
 from werewolf_game.domain.reviews import (
@@ -25,34 +26,39 @@ class GameReviewService:
         historian: GameHistorian,
         *,
         max_concurrent_reviews: int = 1,
+        operation_locks: GameOperationLocks | None = None,
     ) -> None:
         self.repository = repository
         self.historian = historian
         self._semaphore = asyncio.Semaphore(max_concurrent_reviews)
+        self.operation_locks = operation_locks or GameOperationLocks()
         self._tasks: dict[str, asyncio.Task[None]] = {}
 
     async def request_review(self, game_id: str) -> GameReview:
-        game = await self._require_reviewable_game(game_id)
-        current = await self.repository.get_review(game_id)
-        if current is not None:
-            if current.status is ReviewStatus.COMPLETED:
-                return current
-            if current.status is ReviewStatus.PENDING:
-                raise ConflictError("review_in_progress", "史官正在撰写本局复盘")
-            current.status = ReviewStatus.PENDING
-            current.result = None
-            current.error_code = None
-            current.created_at = datetime.now(UTC)
-            current.completed_at = None
-            await self.repository.save_review(current)
-            review = current
-        else:
-            review = await self.repository.create_review(GameReview(game_id=game.id))
-        self._tasks[game_id] = asyncio.create_task(
-            self._execute(game, review),
-            name=f"review:{game_id}",
-        )
-        return review
+        async with self.operation_locks.hold(game_id):
+            game = await self._require_reviewable_game(game_id)
+            current = await self.repository.get_review(game_id)
+            if current is not None:
+                if current.status is ReviewStatus.COMPLETED:
+                    return current
+                if current.status is ReviewStatus.PENDING:
+                    raise ConflictError("review_in_progress", "史官正在撰写本局复盘")
+                current.status = ReviewStatus.PENDING
+                current.result = None
+                current.error_code = None
+                current.created_at = datetime.now(UTC)
+                current.completed_at = None
+                await self.repository.save_review(current)
+                review = current
+            else:
+                review = await self.repository.create_review(
+                    GameReview(game_id=game.id)
+                )
+            self._tasks[game_id] = asyncio.create_task(
+                self._execute(game, review),
+                name=f"review:{game_id}",
+            )
+            return review
 
     async def get_review(self, game_id: str) -> GameReview:
         if await self.repository.get_game(game_id) is None:
