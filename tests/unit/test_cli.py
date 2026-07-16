@@ -40,13 +40,14 @@ def test_server_cli_uses_settings_without_exposing_full_key(
         lambda *args, **kwargs: called.update(kwargs),
     )
 
-    server_main(["--host", "0.0.0.0", "--port", "9000"])
+    server_main(["--host", "0.0.0.0", "--port", "9000", "--reload"])
 
     output = capsys.readouterr().out
     assert "very-secret-key" not in output
     assert "-key" in output
     assert called["host"] == "0.0.0.0"
     assert called["port"] == 9000
+    assert called["reload_dirs"] == ["src"]
 
 
 def test_effective_model_masks_short_keys(capsys: pytest.CaptureFixture[str]) -> None:

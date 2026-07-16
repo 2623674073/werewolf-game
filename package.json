@@ -1,0 +1,19 @@
+{
+  "name": "werewolf-game-workspace",
+  "private": true,
+  "workspaces": [
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n api,web -c blue,magenta \"uv run werewolf-server --reload\" \"npm run dev --workspace werewolf-game-web\"",
+    "build": "npm run build --workspace werewolf-game-web",
+    "lint": "npm run lint --workspace werewolf-game-web",
+    "typecheck": "npm run typecheck --workspace werewolf-game-web",
+    "test:coverage": "npm run test:coverage --workspace werewolf-game-web",
+    "e2e": "npm run e2e --workspace werewolf-game-web",
+    "api:generate": "npm run api:generate --workspace werewolf-game-web"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

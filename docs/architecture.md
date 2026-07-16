@@ -8,6 +8,9 @@
 FastAPI / CLI
       │
 GameService ── GameEngine ── Domain rules
+      │              ├─ SpeechModerator port
+      │              │          │
+      │              │      MCP Client ── stdio moderation server
       │              │
 SQLite repository    AgentRuntime
       │              │

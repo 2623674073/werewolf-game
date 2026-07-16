@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import random
 from datetime import UTC, datetime
 
 from werewolf_game.application.events import EventCoordinator
-from werewolf_game.application.ports import AgentRuntime, GameRepository
+from werewolf_game.application.moderation import ModerationDecision, ModerationStatus
+from werewolf_game.application.ports import (
+    AgentRuntime,
+    GameRepository,
+    SpeechModerator,
+)
 from werewolf_game.domain.models import (
     GamePlayer,
     GameState,
@@ -28,6 +34,11 @@ from werewolf_game.domain.schemas import (
     werewolf_kill_model,
 )
 
+logger = logging.getLogger(__name__)
+
+_BLOCKED_SPEECH = "[该玩家发言因内容审核未通过而隐藏]"
+_UNAVAILABLE_SPEECH = "[内容审核暂时不可用，该玩家本轮发言已跳过]"
+
 
 class GameEngine:
     def __init__(
@@ -35,6 +46,7 @@ class GameEngine:
         runtime: AgentRuntime,
         repository: GameRepository,
         events: EventCoordinator,
+        moderator: SpeechModerator,
         *,
         rng: random.Random | None = None,
         max_rounds: int = 10,
@@ -43,6 +55,7 @@ class GameEngine:
         self.runtime = runtime
         self.repository = repository
         self.events = events
+        self.moderator = moderator
         self.rng = rng or random.Random()
         self.max_rounds = max_rounds
         self.discussion_rounds = discussion_rounds
@@ -118,20 +131,15 @@ class GameEngine:
 
         killed: str | None = None
         if wolves and targets:
-            speeches = await self.runtime.discuss(
-                game.id,
-                [player.name for player in wolves],
+            await self._discuss(
+                game,
+                wolves,
                 "狼人讨论今晚的击杀目标",
-                self.discussion_rounds,
+                discussion_kind="werewolf",
+                rounds=self.discussion_rounds,
+                visibility=Visibility.PRIVATE,
+                recipients=[player.name for player in wolves],
             )
-            for speech in speeches:
-                await self.events.emit(
-                    game,
-                    "speech",
-                    speech,
-                    visibility=Visibility.PRIVATE,
-                    recipients=[player.name for player in wolves],
-                )
             schema = werewolf_kill_model([player.name for player in targets])
             decisions = await asyncio.gather(
                 *(
@@ -228,14 +236,13 @@ class GameEngine:
         await self.repository.save_game(game)
         alive = [player for player in game.players if player.is_alive]
         await self.events.emit(game, "day_started", {"round": game.round_number})
-        speeches = await self.runtime.discuss(
-            game.id,
-            [player.name for player in alive],
+        await self._discuss(
+            game,
+            alive,
             "请根据已有信息依次发言",
-            1,
+            discussion_kind="day",
+            rounds=1,
         )
-        for speech in speeches:
-            await self.events.emit(game, "speech", speech)
 
         decisions = await asyncio.gather(
             *(
@@ -322,5 +329,110 @@ class GameEngine:
         game.winner = winner
         game.finished_at = datetime.now(UTC)
         await self.repository.save_game(game)
+        await self.events.emit(
+            game,
+            "roles_revealed",
+            {
+                "players": [
+                    {"player": player.name, "role": player.role}
+                    for player in game.players
+                ]
+            },
+        )
         await self.events.emit(game, "game_finished", {"winner": winner})
         await self.events.broker.close_game(game.id)
+
+    async def _discuss(
+        self,
+        game: GameState,
+        players: list[GamePlayer],
+        announcement: str,
+        *,
+        discussion_kind: str,
+        rounds: int,
+        visibility: Visibility = Visibility.PUBLIC,
+        recipients: list[str] | None = None,
+    ) -> None:
+        recipient_names = recipients or []
+        names = [player.name for player in players]
+        await self.events.emit(
+            game,
+            "discussion_started",
+            {
+                "discussion_kind": discussion_kind,
+                "round": game.round_number,
+                "participants": names,
+            },
+            visibility=visibility,
+            recipients=recipient_names,
+        )
+        async for activity in self.runtime.discuss(
+            game.id,
+            names,
+            announcement,
+            rounds,
+        ):
+            payload: dict[str, object] = {
+                "player": activity.player,
+                "round": game.round_number,
+                "discussion_round": activity.discussion_round,
+                "discussion_kind": discussion_kind,
+            }
+            if activity.kind == "speech":
+                content = activity.content or ""
+                if visibility is Visibility.PUBLIC:
+                    decision = await self._review_public_speech(
+                        game,
+                        player=activity.player,
+                        content=content,
+                    )
+                    if decision.status is not ModerationStatus.ALLOWED:
+                        await self.events.emit(
+                            game,
+                            "speech_moderated",
+                            {
+                                "player": activity.player,
+                                "status": decision.status.value,
+                                "categories": [
+                                    category.value for category in decision.categories
+                                ],
+                            },
+                            visibility=Visibility.INTERNAL,
+                        )
+                        content = (
+                            _BLOCKED_SPEECH
+                            if decision.status is ModerationStatus.BLOCKED
+                            else _UNAVAILABLE_SPEECH
+                        )
+                payload["content"] = content
+            await self.events.emit(
+                game,
+                "speaker_turn_started" if activity.kind == "turn_started" else "speech",
+                payload,
+                visibility=visibility,
+                recipients=recipient_names,
+            )
+
+    async def _review_public_speech(
+        self,
+        game: GameState,
+        *,
+        player: str,
+        content: str,
+    ) -> ModerationDecision:
+        try:
+            return await self.moderator.review_speech(
+                player=player,
+                phase=game.phase.value,
+                round_number=game.round_number,
+                content=content,
+            )
+        except Exception:
+            logger.warning(
+                "speech moderator raised unexpectedly",
+                extra={"game_id": game.id, "player": player},
+            )
+            return ModerationDecision(
+                status=ModerationStatus.UNAVAILABLE,
+                reason="moderation_service_unavailable",
+            )

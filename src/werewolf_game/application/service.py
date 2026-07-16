@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Protocol
@@ -11,6 +12,8 @@ from werewolf_game.application.events import EventCoordinator
 from werewolf_game.application.ports import GameRepository
 from werewolf_game.domain.models import GameState, GameStatus, Phase
 from werewolf_game.domain.rules import validate_player_count
+
+logger = logging.getLogger(__name__)
 
 
 class RunnableEngine(Protocol):
@@ -63,10 +66,7 @@ class GameService:
         if task is None or task.done():
             raise ConflictError("game_not_running", "游戏当前未运行")
         task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
+        await asyncio.gather(task, return_exceptions=True)
         game.status = GameStatus.CANCELLED
         game.phase = Phase.FINISHED
         game.finished_at = datetime.now(UTC)
@@ -84,15 +84,27 @@ class GameService:
 
     async def shutdown(self) -> None:
         running = list(self._tasks.items())
+        games = await asyncio.gather(
+            *(self.repository.get_game(game_id) for game_id, _ in running),
+            return_exceptions=True,
+        )
         for _, task in running:
             task.cancel()
-        for game_id, task in running:
+        await asyncio.gather(
+            *(task for _, task in running),
+            return_exceptions=True,
+        )
+        for (game_id, _), game_or_error in zip(running, games, strict=True):
+            if isinstance(game_or_error, BaseException):
+                logger.error(
+                    "failed to load running game during shutdown",
+                    extra={"game_id": game_id},
+                )
+                continue
+            game = game_or_error
+            if game is None or game.status is not GameStatus.RUNNING:
+                continue
             try:
-                await task
-            except asyncio.CancelledError:
-                pass
-            game = await self.repository.get_game(game_id)
-            if game is not None:
                 game.status = GameStatus.INTERRUPTED
                 game.phase = Phase.FINISHED
                 game.finished_at = datetime.now(UTC)
@@ -104,3 +116,8 @@ class GameService:
                         {"error_code": "service_shutdown"},
                     )
                     await self.events.broker.close_game(game.id)
+            except Exception:
+                logger.exception(
+                    "failed to persist interrupted game during shutdown",
+                    extra={"game_id": game_id},
+                )

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 from typing import Any
 
 from agentscope.agent import Agent
@@ -12,6 +12,7 @@ from agentscope.message import AssistantMsg, SystemMsg, UserMsg
 from agentscope.model import OpenAIChatModel
 from pydantic import BaseModel, SecretStr
 
+from werewolf_game.application.ports import DiscussionActivity
 from werewolf_game.domain.models import GameState
 
 AgentFactory = Callable[[str, str, Any], Any]
@@ -82,16 +83,20 @@ class AgentScopeRuntime:
         players: Sequence[str],
         announcement: str,
         rounds: int,
-    ) -> list[dict[str, str]]:
+    ) -> AsyncIterator[DiscussionActivity]:
         agents = self._selected(game_id, players)
         opening = UserMsg(name="游戏主持人", content=announcement)
         await asyncio.gather(
             *(agent.observe(opening) for agent in agents.values()),
             return_exceptions=True,
         )
-        speeches: list[dict[str, str]] = []
-        for _ in range(rounds):
+        for discussion_round in range(1, rounds + 1):
             for name, agent in agents.items():
+                yield DiscussionActivity(
+                    kind="turn_started",
+                    player=name,
+                    discussion_round=discussion_round,
+                )
                 prompt = UserMsg(name="游戏主持人", content=f"{name}，请发言。")
                 try:
                     reply = await self._with_retry(agent.reply, prompt)
@@ -101,7 +106,12 @@ class AgentScopeRuntime:
                         extra={"game_id": game_id, "event_type": "discussion_failed"},
                     )
                     continue
-                speeches.append({"player": name, "content": reply.get_text_content()})
+                yield DiscussionActivity(
+                    kind="speech",
+                    player=name,
+                    discussion_round=discussion_round,
+                    content=reply.get_text_content(),
+                )
                 await asyncio.gather(
                     *(
                         recipient.observe(reply)
@@ -110,7 +120,6 @@ class AgentScopeRuntime:
                     ),
                     return_exceptions=True,
                 )
-        return speeches
 
     async def decide(
         self,

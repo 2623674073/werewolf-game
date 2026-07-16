@@ -1,29 +1,111 @@
-# werewolf_game
+# 群雄夜宴 · AI 狼人杀实时观战平台
 
-基于 AgentScope 2.0.4 的三国主题狼人杀服务。项目提供 FastAPI、SSE 实时事件流和命令行入口，核心规则不依赖 AgentScope、Web 框架或数据库。
+> 让多个 AI Agent 在一场完整的三国主题狼人杀中自主推理、发言、欺骗与决策，并把全过程实时呈现在可回放的沉浸式观战控制台中。
 
-## 架构
+`AgentScope 2.0.4` · `OpenAI-compatible` · `FastAPI` · `React` · `SSE` · `SQLite` · `MCP`
 
-```text
-src/werewolf_game/
-├─ domain/          玩家、角色、规则、行动 Schema 和游戏事件
-├─ application/     游戏引擎、任务服务、端口和事件发布
-├─ infrastructure/  AgentScope、OpenAI-compatible、SQLite 和日志适配
-├─ api/             FastAPI、Bearer 鉴权、REST 和 SSE
-├─ config.py        环境变量配置
-└─ cli.py           服务和单局命令行入口
+## 项目介绍
+
+群雄夜宴不是一段简单的多 Agent 对话脚本，而是一套可运行、可观测、可复盘的 AI 社交推理应用。系统会为 6–12 位三国人物随机分配狼人、预言家、女巫、猎人和村民身份，由大模型驱动每位玩家独立思考，并按照夜晚行动、白天讨论、公开投票和胜负判定推进完整对局。
+
+项目既可以作为 AgentScope 2.0、多 Agent 编排和结构化输出的工程实践，也可以用于课堂演示、模型能力观察、OpenAI-compatible 接口联调，以及实时事件驱动前后端的参考实现。
+
+### 核心体验
+
+| 能力        | 说明                                                                               |
+| ----------- | ---------------------------------------------------------------------------------- |
+| AI 自主对局 | 每位玩家拥有独立身份、人物性格和上下文，能够自由讨论并完成受 Schema 约束的秘密行动 |
+| 沉浸式观战  | 国风棋盘、20 位三国人物立绘、昼夜场景和角色徽记共同呈现 6–12 人对局                |
+| 实时事件流  | 发言、阶段切换、投票、查验、用药、淘汰和胜负通过 SSE 逐条推送，无需轮询等待        |
+| 双视角观察  | 公开视角保护秘密信息；全知视角展示狼人讨论、投票理由、怀疑值和角色技能             |
+| 暂停与复盘  | 支持暂停、倍速、跳到最新和终局回放，SQLite 保存玩家快照及严格递增的事件序列        |
+| 稳健降级    | 单个模型调用失败不会拖垮整局；支持超时、有限重试、并发限制、断线补发和安全错误码   |
+| 发言审核    | 独立 stdio MCP 服务在公开发言入库前完成内容审核，审核异常时默认不放行原文          |
+
+### 界面预览
+
+![对局大厅：创建游戏与历史对局管理](docs/images/game-lobby.png)
+
+对局大厅提供人数选择、一键开局、状态筛选和历史卷宗入口。
+
+![全知观战：环形席位、身份信息与事件时间线](docs/images/game-spectator.png)
+
+全知视角将玩家状态、角色身份、公开发言和秘密行动统一投射到可暂停、可倍速、可定位的事件时间线上。以上画面由离线确定性对局生成，不依赖真实模型服务。
+
+### 一局游戏如何运行
+
+```mermaid
+flowchart LR
+    A[创建 6–12 人对局] --> B[随机分配身份与人物]
+    B --> C[夜晚秘密行动]
+    C --> D[白天公开讨论]
+    D --> E[投票与角色技能]
+    E --> F{胜负已确定?}
+    F -- 否 --> C
+    F -- 是 --> G[身份揭晓与终局复盘]
 ```
 
-运行中的 Agent 上下文只保存在当前进程。SQLite 保存游戏状态、玩家快照和完整事件；服务重启后，未完成游戏会标记为 `interrupted`，不会恢复模型上下文。详细设计见 [docs/architecture.md](docs/architecture.md)。
+## 技术架构
 
-## 环境
+项目采用模块化单体和端口适配架构。领域规则不依赖 AgentScope、FastAPI、SQLAlchemy 或前端框架，模型、数据库和交付接口均通过应用层端口接入，便于测试与替换。
+
+```mermaid
+flowchart TB
+    UI[React 观战控制台] -->|REST / SSE| API[FastAPI API]
+    CLI[CLI] --> APP[GameService / GameEngine]
+    API --> APP
+    APP --> DOMAIN[Domain Rules & Events]
+    APP --> RUNTIME[AgentRuntime Port]
+    APP --> REPO[GameRepository Port]
+    APP --> MOD[SpeechModerator Port]
+    RUNTIME --> AS[AgentScope 2.0]
+    AS --> LLM[OpenAI-compatible LLM]
+    REPO --> DB[(SQLite / SQLAlchemy Async)]
+    MOD --> MCP[MCP Client / stdio 审核服务]
+    APP --> BROKER[Event Broker]
+    BROKER --> API
+```
+
+### 技术栈
+
+| 层次         | 技术                                                | 用途                                             |
+| ------------ | --------------------------------------------------- | ------------------------------------------------ |
+| Agent 与模型 | AgentScope 2.0.4、OpenAI-compatible API、Pydantic 2 | Agent 会话、自由发言、结构化投票和技能决策       |
+| 后端应用     | Python 3.12、FastAPI、asyncio                       | 游戏引擎、后台对局任务、REST、SSE 和生命周期管理 |
+| 数据持久化   | SQLAlchemy Async、aiosqlite、Alembic                | 游戏状态、玩家快照、事件序列和数据库迁移         |
+| 实时与安全   | SSE、Bearer Token、MCP、JSON 日志                   | 断线补发、管理鉴权、发言审核和可观测性           |
+| 前端         | React 19、TypeScript、Vite、TanStack Query、Zustand | 服务状态、事件队列、播放游标和观战界面           |
+| 交互与视觉   | Tailwind CSS、Radix UI、Motion                      | 国风主题、无障碍控件和阶段动画                   |
+| 工程质量     | uv、ruff、mypy、pytest、Vitest、Playwright          | 依赖管理、静态检查、单元测试和端到端验证         |
+
+### 项目结构
+
+```text
+werewolf_game/
+├─ src/werewolf_game/
+│  ├─ domain/          玩家、角色、规则、行动 Schema 和游戏事件
+│  ├─ application/     游戏引擎、任务服务、端口和事件发布
+│  ├─ infrastructure/  AgentScope、OpenAI-compatible、SQLite 和日志适配
+│  ├─ mcp/             独立的 stdio 发言审核服务
+│  └─ api/             FastAPI、Bearer 鉴权、REST、SSE 和 SPA 托管
+├─ frontend/           React 实时观战与终局复盘控制台
+├─ tests/              单元、应用、基础设施、API 和 E2E 测试
+├─ migrations/         Alembic 数据库迁移
+└─ docs/               架构与 MCP 实现说明
+```
+
+运行中的 Agent 上下文只保存在当前进程。SQLite 保存游戏状态、玩家快照和完整事件；服务重启后，未完成游戏会标记为 `interrupted`，不会恢复模型上下文。更多设计细节见 [架构说明](docs/architecture.md)。
+
+## 运行环境与配置
 
 - Python 3.12
 - uv
+- Node.js 20+ 与 npm
 - 支持工具调用的 OpenAI-compatible 模型接口
 
 ```powershell
 uv sync --group dev
+npm ci
 Copy-Item .env.example .env
 ```
 
@@ -38,32 +120,120 @@ APP_API_TOKEN=replace-with-at-least-24-characters
 
 常用配置：
 
-| 环境变量 | 默认值 | 说明 |
-| --- | --- | --- |
-| `LLM_MODEL_ID` | 必填 | OpenAI-compatible 模型 ID |
-| `LLM_BASE_URL` | 必填 | OpenAI-compatible 接口地址 |
-| `LLM_TIMEOUT` | `60` | 单次模型调用超时（秒） |
-| `DATABASE_URL` | `sqlite+aiosqlite:///./data/werewolf.db` | SQLite 地址 |
-| `CORS_ORIGINS` | `[]` | JSON 格式的前端来源白名单 |
-| `MAX_CONCURRENT_GAMES` | `4` | 同时运行的游戏数 |
-| `MAX_MODEL_CONCURRENCY` | `8` | 同时执行的模型调用数 |
-| `MODEL_MAX_RETRIES` | `2` | 模型调用重试次数 |
+| 环境变量                | 默认值                                   | 说明                       |
+| ----------------------- | ---------------------------------------- | -------------------------- |
+| `LLM_MODEL_ID`          | 必填                                     | OpenAI-compatible 模型 ID  |
+| `LLM_BASE_URL`          | 必填                                     | OpenAI-compatible 接口地址 |
+| `LLM_TIMEOUT`           | `60`                                     | 单次模型调用超时（秒）     |
+| `DATABASE_URL`          | `sqlite+aiosqlite:///./data/werewolf.db` | SQLite 地址                |
+| `CORS_ORIGINS`          | `[]`                                     | JSON 格式的前端来源白名单  |
+| `MAX_CONCURRENT_GAMES`  | `4`                                      | 同时运行的游戏数           |
+| `MAX_MODEL_CONCURRENCY` | `8`                                      | 同时执行的模型调用数       |
+| `MODEL_MAX_RETRIES`     | `2`                                      | 模型调用重试次数           |
+| `WEB_DIST_DIR`          | `frontend/dist`                          | FastAPI 托管的前端构建目录 |
 
 密钥不会写入 API 响应或结构化日志。启动时只输出 API Key 后四位。
 
-## 数据库与启动
+## 推荐启动方式
 
-首次运行或升级版本时执行：
+项目有两种启动方式：正常使用时采用“构建前端后由 FastAPI 统一托管”，只有修改源码时才使用热更新开发模式。
+
+### 第一次启动
+
+在项目根目录依次执行：
 
 ```powershell
+# 1. 安装 Python 和前端依赖
+uv sync --group dev
+npm ci
+
+# 2. 创建本地配置文件（已经存在 .env 时跳过）
+Copy-Item .env.example .env
+
+# 3. 编辑 .env，至少填写 LLM_API_KEY、LLM_MODEL_ID、LLM_BASE_URL、APP_API_TOKEN
+notepad .env
+
+# 4. 初始化或升级数据库
 uv run alembic upgrade head
+
+# 5. 构建前端
+npm run build
+
+# 6. 启动统一服务
+uv run werewolf-server --host 127.0.0.1 --port 8000
 ```
 
-启动 HTTP 服务：
+当终端显示 `Uvicorn running on http://127.0.0.1:8000` 后，浏览器访问 `http://127.0.0.1:8000`，输入 `.env` 中的 `APP_API_TOKEN`。
+
+`npm run build` 出现 `Some chunks are larger than 500 kB` 是前端包体积优化建议，不是构建失败。只要最后显示 `built in ...`，就已经成功生成 `frontend/dist`，可以继续启动服务。
+
+### 日常启动（推荐）
+
+使用 FastAPI 同时托管前端和 API，不启用热重载。该方式只有一个访问端口，对局过程中不会因为源码变化自动重启，最适合连续运行多局。
+
+如果依赖、数据库结构和前端代码都没有变化，日常只需要执行：
 
 ```powershell
 uv run werewolf-server --host 127.0.0.1 --port 8000
 ```
+
+不需要每天重复运行 `uv sync`、`npm ci`、数据库升级或前端构建。
+
+### 拉取代码或修改代码后启动
+
+拉取新版本后，使用下面这组命令最稳妥。没有变化的步骤会很快完成：
+
+```powershell
+uv sync --group dev
+npm ci
+uv run alembic upgrade head
+npm run build
+uv run werewolf-server --host 127.0.0.1 --port 8000
+```
+
+只修改了后端 Python 代码时可以跳过 `npm run build`；只修改了前端代码时必须重新执行 `npm run build`。令牌只保存在当前浏览器标签页的 `sessionStorage` 中。
+
+启动后可用以下命令检查服务：
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/health/live
+Invoke-RestMethod http://127.0.0.1:8000/health/ready
+```
+
+如果出现 `[WinError 10048]`，表示端口 `8000` 已被另一个服务占用，和模型、MCP、前端构建都无关。先尝试访问 `http://127.0.0.1:8000`；如果旧服务仍然可用，就不需要再次启动。
+
+需要重启服务时，在旧服务所在终端按 `Ctrl+C`。找不到旧终端时，可在 PowerShell 中查询并停止监听进程：
+
+```powershell
+$listener = Get-NetTCPConnection -LocalPort 8000 -State Listen
+$listener
+Stop-Process -Id $listener.OwningProcess -Force
+```
+
+确认端口已经释放后再启动：
+
+```powershell
+Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue
+uv run werewolf-server --host 127.0.0.1 --port 8000
+```
+
+如果不想停止原服务，也可以临时换端口，例如 `--port 8001`，然后访问 `http://127.0.0.1:8001`。
+
+### 前后端开发模式
+
+只有在修改代码时使用：
+
+```powershell
+npm run dev
+```
+
+浏览器访问 `http://127.0.0.1:5173`。Vite 负责前端热更新，FastAPI 监听 `8000` 并只对 `src/` 开启后端热重载。
+
+修改后端源码会重启服务，正在运行的对局将标记为 `interrupted`，前端会短暂显示“正在重连”。因此开发模式不适合长时间演示或验证多局稳定性。
+
+控制台支持创建与启动对局、公开/全知视角、实时对话、暂停与倍速播放、跳到最新和终局复盘，并包含 20 位三国人物立绘、5 类身份视觉标识及昼、夜、终局三套场景。
+
+### 纯命令行运行
 
 直接运行一局：
 
@@ -95,6 +265,7 @@ Authorization: Bearer <APP_API_TOKEN>
 
 ```text
 POST /api/v1/games
+GET  /api/v1/session
 POST /api/v1/games/{id}/start
 POST /api/v1/games/{id}/cancel
 GET  /api/v1/games
@@ -126,6 +297,36 @@ SSE 支持 `Last-Event-ID` 断线补发。浏览器原生 `EventSource` 无法�
 
 默认 `view=public`，不包含身份、狼人讨论、预言家结果和女巫行动；管理端复盘可显式使用 `view=god`。
 
+## 发言审核 MCP
+
+完整设计、调用链和测试说明见 [发言内容审核 MCP 实现流程](docs/mcp-speech-moderation.md)。
+
+游戏运行时会启动一个独立的 stdio MCP 子进程，并在公开发言写入事件库前调用
+`review_speech` 工具。审核服务使用当前 OpenAI-compatible 模型返回结构化结果：
+
+- `allowed`：原文进入公开 `speech` 事件。
+- `blocked`：原文不会持久化，公开事件改为固定的审核隐藏提示。
+- MCP 或模型不可用：跳过本轮发言但不中断对局，也不会放行未经审核的原文。
+
+狼人杀规则语境中的“击杀”“毒药”“投票”等虚构描述默认允许。被拦截或审核不可用时，
+系统另存一条不包含原文的 `internal` 类型 `speech_moderated` 事件。
+
+MCP 服务也可以单独启动，供 MCP Inspector 调试：
+
+```powershell
+uv run werewolf-moderation-mcp
+```
+
+使用 Inspector 启动并检查 stdio 服务：
+
+```powershell
+npx -y @modelcontextprotocol/inspector uv run werewolf-moderation-mcp
+```
+
+在 Inspector 中确认只有 `review_speech` 工具，然后分别测试正常游戏发言、辱骂、
+个人信息和“忽略审核规则”等提示词注入输入。stdio 协议要求标准输出只包含 MCP 消息，
+因此服务日志不会写入 stdout。
+
 ## 开发验收
 
 ```powershell
@@ -133,6 +334,11 @@ uv run ruff check .
 uv run ruff format --check .
 uv run mypy src
 uv run pytest --cov=werewolf_game --cov-fail-under=85
+npm run lint
+npm run typecheck
+npm run test:coverage
+npm run build
+npm run e2e
 ```
 
 测试默认使用假模型，不访问外部模型服务。真实模型冒烟必须显式设置 `RUN_LIVE_TESTS=1`，并遵守先输出模型名、Base URL 和脱敏 Key 后缀的约定。结构化投票依赖接口支持 `tools` 和 `tool_choice`。

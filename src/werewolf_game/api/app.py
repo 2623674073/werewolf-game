@@ -3,19 +3,27 @@ from __future__ import annotations
 import asyncio
 import hmac
 import json
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Annotated, Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, FastAPI, Header, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, Field
+from fastapi.staticfiles import StaticFiles
 
+from werewolf_game.api.schemas import (
+    CreateGameRequest,
+    EventResponse,
+    GameResponse,
+    SessionResponse,
+)
 from werewolf_game.application.engine import GameEngine
 from werewolf_game.application.errors import (
     ApplicationError,
@@ -33,6 +41,7 @@ from werewolf_game.infrastructure.agentscope_runtime import (
 )
 from werewolf_game.infrastructure.database import Database
 from werewolf_game.infrastructure.logging import request_id_var
+from werewolf_game.infrastructure.moderation import McpSpeechModerator
 from werewolf_game.infrastructure.repository import SqliteGameRepository
 
 
@@ -43,10 +52,7 @@ class AppComponents:
     repository: SqliteGameRepository
     broker: EventBroker
     service: GameService
-
-
-class CreateGameRequest(BaseModel):
-    player_count: int = Field(ge=6, le=12)
+    moderator: McpSpeechModerator | None = None
 
 
 class ApiError(Exception):
@@ -57,6 +63,7 @@ class ApiError(Exception):
 
 
 security = HTTPBearer(auto_error=False)
+logger = logging.getLogger(__name__)
 
 
 def build_components(settings: Settings | None = None) -> AppComponents:
@@ -77,14 +84,15 @@ def build_components(settings: Settings | None = None) -> AppComponents:
         timeout_seconds=settings.llm_timeout,
         max_retries=0,
     )
+    moderator = McpSpeechModerator(execution_timeout=settings.llm_timeout + 5)
     events = EventCoordinator(repository, broker)
     service = GameService(
         repository,
-        lambda: GameEngine(runtime, repository, events),
+        lambda: GameEngine(runtime, repository, events, moderator),
         max_concurrent_games=settings.max_concurrent_games,
         events=events,
     )
-    return AppComponents(settings, database, repository, broker, service)
+    return AppComponents(settings, database, repository, broker, service, moderator)
 
 
 def create_app(components: AppComponents | None = None) -> FastAPI:
@@ -93,11 +101,19 @@ def create_app(components: AppComponents | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         await components.repository.mark_running_interrupted()
+        if components.moderator is not None:
+            await components.moderator.start()
         try:
             yield
         finally:
-            await components.service.shutdown()
-            await components.database.dispose()
+            try:
+                await components.service.shutdown()
+            finally:
+                try:
+                    if components.moderator is not None:
+                        await components.moderator.close()
+                finally:
+                    await components.database.dispose()
 
     app = FastAPI(title="Werewolf Game API", version="1.0.0", lifespan=lifespan)
     app.state.components = components
@@ -169,48 +185,81 @@ def create_app(components: AppComponents | None = None) -> FastAPI:
 
     router = APIRouter(prefix="/api/v1", dependencies=[Depends(require_token)])
 
-    @router.post("/games", status_code=201)
-    async def create_game(body: CreateGameRequest) -> dict[str, object]:
-        return _game_json(
+    @router.get("/session", response_model=SessionResponse)
+    async def get_session() -> SessionResponse:
+        return SessionResponse(
+            capabilities=["control", "public_view", "god_view"],
+        )
+
+    @router.post(
+        "/games",
+        status_code=201,
+        response_model=GameResponse,
+        response_model_exclude_none=True,
+    )
+    async def create_game(body: CreateGameRequest) -> GameResponse:
+        return _game_response(
             await components.service.create_game(body.player_count), god_view=False
         )
 
-    @router.post("/games/{game_id}/start", status_code=202)
-    async def start_game(game_id: str) -> dict[str, object]:
-        return _game_json(await components.service.start_game(game_id), god_view=False)
+    @router.post(
+        "/games/{game_id}/start",
+        status_code=202,
+        response_model=GameResponse,
+        response_model_exclude_none=True,
+    )
+    async def start_game(game_id: str) -> GameResponse:
+        return _game_response(
+            await components.service.start_game(game_id), god_view=False
+        )
 
-    @router.post("/games/{game_id}/cancel", status_code=202)
-    async def cancel_game(game_id: str) -> dict[str, object]:
-        return _game_json(await components.service.cancel_game(game_id), god_view=False)
+    @router.post(
+        "/games/{game_id}/cancel",
+        status_code=202,
+        response_model=GameResponse,
+        response_model_exclude_none=True,
+    )
+    async def cancel_game(game_id: str) -> GameResponse:
+        return _game_response(
+            await components.service.cancel_game(game_id), god_view=False
+        )
 
-    @router.get("/games")
+    @router.get(
+        "/games",
+        response_model=list[GameResponse],
+        response_model_exclude_none=True,
+    )
     async def list_games(
         offset: Annotated[int, Query(ge=0)] = 0,
         limit: Annotated[int, Query(ge=1, le=100)] = 20,
-    ) -> list[dict[str, object]]:
+    ) -> list[GameResponse]:
         games = await components.repository.list_games(offset, limit)
-        return [_game_json(game, god_view=False) for game in games]
+        return [_game_response(game, god_view=False) for game in games]
 
-    @router.get("/games/{game_id}")
+    @router.get(
+        "/games/{game_id}",
+        response_model=GameResponse,
+        response_model_exclude_none=True,
+    )
     async def get_game(
         game_id: str,
         view: Literal["public", "god"] = "public",
-    ) -> dict[str, object]:
-        return _game_json(
+    ) -> GameResponse:
+        return _game_response(
             await components.service.require_game(game_id), god_view=view == "god"
         )
 
-    @router.get("/games/{game_id}/events")
+    @router.get("/games/{game_id}/events", response_model=list[EventResponse])
     async def list_events(
         game_id: str,
         after_seq: Annotated[int, Query(ge=0)] = 0,
         view: Literal["public", "god"] = "public",
-    ) -> list[dict[str, object]]:
+    ) -> list[EventResponse]:
         await components.service.require_game(game_id)
         events = await components.repository.list_events(
             game_id, after_seq, view == "god"
         )
-        return [_event_json(event) for event in events]
+        return [_event_response(event) for event in events]
 
     @router.get("/games/{game_id}/stream")
     async def stream_events(
@@ -245,6 +294,8 @@ def create_app(components: AppComponents | None = None) -> FastAPI:
             return JSONResponse({"status": "ready"})
         return JSONResponse({"status": "not_ready"}, status_code=503)
 
+    _mount_web_app(app, components.settings)
+
     return app
 
 
@@ -265,7 +316,26 @@ async def _event_stream(
         for event in history:
             last_seq = max(last_seq, event.seq)
             yield _sse(event)
+        terminal_event_types = {
+            "game_finished",
+            "game_cancelled",
+            "game_interrupted",
+            "game_failed",
+        }
+        if any(event.type in terminal_event_types for event in history):
+            return
         if game.status not in {GameStatus.CREATED, GameStatus.RUNNING}:
+            # A terminal snapshot may become visible just before its final event is
+            # committed. Give that short transaction window one final database read,
+            # while still allowing legacy terminal games without a closing event.
+            await asyncio.sleep(0.05)
+            tail = await components.repository.list_events(
+                game.id, last_seq, include_private
+            )
+            for trailing_event in tail:
+                if trailing_event.seq > last_seq:
+                    last_seq = trailing_event.seq
+                    yield _sse(trailing_event)
             return
         while True:
             try:
@@ -274,6 +344,13 @@ async def _event_stream(
                 yield ": keep-alive\n\n"
                 continue
             except StopAsyncIteration:
+                tail = await components.repository.list_events(
+                    game.id, last_seq, include_private
+                )
+                for trailing_event in tail:
+                    if trailing_event.seq > last_seq:
+                        last_seq = trailing_event.seq
+                        yield _sse(trailing_event)
                 return
             if event.seq > last_seq:
                 last_seq = event.seq
@@ -287,51 +364,76 @@ async def _event_stream(
 
 
 def _sse(event: GameEvent) -> str:
-    data = json.dumps(_event_json(event), ensure_ascii=False, separators=(",", ":"))
+    data = json.dumps(
+        _event_response(event).model_dump(mode="json"),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
     return f"id: {event.seq}\nevent: {event.type}\ndata: {data}\n\n"
 
 
-def _game_json(game: GameState, *, god_view: bool) -> dict[str, object]:
+def _game_response(game: GameState, *, god_view: bool) -> GameResponse:
     players: list[dict[str, object]] = []
+    reveal_roles = god_view or game.status in {GameStatus.COMPLETED, GameStatus.DRAW}
     for player in game.players:
         item: dict[str, object] = {
             "name": player.name,
             "character": player.character,
             "is_alive": player.is_alive,
         }
-        if god_view:
+        if reveal_roles:
             item.update(
                 role=player.role,
                 has_antidote=player.has_antidote,
                 has_poison=player.has_poison,
             )
         players.append(item)
-    return {
-        "id": game.id,
-        "player_count": game.player_count,
-        "status": game.status.value,
-        "phase": game.phase.value,
-        "round_number": game.round_number,
-        "players": players,
-        "winner": game.winner,
-        "error_code": game.error_code,
-        "created_at": game.created_at.isoformat(),
-        "started_at": game.started_at.isoformat() if game.started_at else None,
-        "finished_at": game.finished_at.isoformat() if game.finished_at else None,
-    }
+    return GameResponse(
+        id=game.id,
+        player_count=game.player_count,
+        status=game.status.value,
+        phase=game.phase.value,
+        round_number=game.round_number,
+        players=players,  # type: ignore[arg-type]
+        winner=game.winner,
+        error_code=game.error_code,
+        created_at=game.created_at.isoformat(),
+        started_at=game.started_at.isoformat() if game.started_at else None,
+        finished_at=game.finished_at.isoformat() if game.finished_at else None,
+    )
 
 
-def _event_json(event: GameEvent) -> dict[str, object]:
-    return {
-        "game_id": event.game_id,
-        "seq": event.seq,
-        "type": event.type,
-        "phase": event.phase.value,
-        "visibility": event.visibility.value,
-        "recipients": list(event.recipients),
-        "payload": event.payload,
-        "created_at": event.created_at.isoformat(),
-    }
+def _event_response(event: GameEvent) -> EventResponse:
+    return EventResponse(
+        game_id=event.game_id,
+        seq=event.seq,
+        type=event.type,  # type: ignore[arg-type]
+        phase=event.phase.value,
+        visibility=event.visibility.value,
+        recipients=list(event.recipients),
+        payload=event.payload,
+        created_at=event.created_at.isoformat(),
+    )
+
+
+def _mount_web_app(app: FastAPI, settings: Settings) -> None:
+    dist = Path(settings.web_dist_dir)
+    if not dist.is_absolute():
+        dist = Path.cwd() / dist
+    index = dist / "index.html"
+    assets = dist / "assets"
+    if not index.is_file():
+        logger.warning("frontend build not found", extra={"web_dist_dir": str(dist)})
+        return
+    if assets.is_dir():
+        app.mount("/assets", StaticFiles(directory=assets), name="web-assets")
+
+    @app.get("/{web_path:path}", include_in_schema=False)
+    async def web_app(web_path: str) -> Response:
+        candidate = (dist / web_path).resolve()
+        if candidate.is_relative_to(dist.resolve()) and candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(index)
 
 
 def _error_response(
