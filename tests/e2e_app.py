@@ -126,7 +126,7 @@ class DemoEngine:
             "vote_result",
             {"voted_out": "曹操", "votes": 5, "hunter_shot": None},
         )
-        await asyncio.sleep(1.2)
+        await asyncio.sleep(2.5)
         game.status = GameStatus.COMPLETED
         game.phase = Phase.FINISHED
         game.winner = "villagers"
