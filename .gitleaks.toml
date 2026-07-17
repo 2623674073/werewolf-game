@@ -1,7 +1,7 @@
 [extend]
 useDefault = true
 
-[[allowlists]]
+[allowlist]
 description = "Documented APP_API_TOKEN example placeholder"
-regexTarget = "match"
+regexTarget = "line"
 regexes = ['''replace-with-at-least-24-characters''']
