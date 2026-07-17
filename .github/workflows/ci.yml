@@ -21,7 +21,7 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run mypy src
       - run: uv run pytest --cov=werewolf_game --cov-report=xml --cov-fail-under=85
-      - uses: codecov/codecov-action@v5
+      - uses: codecov/codecov-action@v7
         with:
           files: coverage.xml
           fail_ci_if_error: false
