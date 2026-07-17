@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.3.0-rc.1] - 2026-07-17
+
 ### Added
 
 - Docker/Compose 单容器交付与非 root 运行。
