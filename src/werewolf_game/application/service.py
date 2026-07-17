@@ -10,6 +10,7 @@ from uuid import uuid4
 from werewolf_game.application.errors import CapacityError, ConflictError, NotFoundError
 from werewolf_game.application.events import EventCoordinator
 from werewolf_game.application.locks import GameOperationLocks
+from werewolf_game.application.metrics import ApplicationMetrics, NullMetrics
 from werewolf_game.application.ports import GameRepository
 from werewolf_game.domain.models import GameState, GameStatus, Phase
 from werewolf_game.domain.reviews import ReviewStatus
@@ -39,13 +40,16 @@ class GameService:
         max_concurrent_games: int,
         events: EventCoordinator | None = None,
         operation_locks: GameOperationLocks | None = None,
+        metrics: ApplicationMetrics | None = None,
     ) -> None:
         self.repository = repository
         self.engine_factory = engine_factory
         self.max_concurrent_games = max_concurrent_games
         self.events = events
         self.operation_locks = operation_locks or GameOperationLocks()
+        self.metrics = metrics or NullMetrics()
         self._tasks: dict[str, asyncio.Task[None]] = {}
+        self._terminal_reasons: dict[str, str] = {}
 
     async def create_game(self, player_count: int) -> GameState:
         validate_player_count(player_count)
@@ -65,6 +69,7 @@ class GameService:
             await self.repository.save_game(game)
             task = asyncio.create_task(self._execute(game), name=f"game:{game.id}")
             self._tasks[game.id] = task
+            self.metrics.game_started()
             return game
 
     async def _execute(self, game: GameState) -> None:
@@ -72,6 +77,8 @@ class GameService:
             await self.engine_factory().run(game)
         finally:
             self._tasks.pop(game.id, None)
+            status = self._terminal_reasons.pop(game.id, game.status.value)
+            self.metrics.game_finished(status)
 
     async def cancel_game(self, game_id: str) -> GameState:
         async with self.operation_locks.hold(game_id):
@@ -79,6 +86,7 @@ class GameService:
             task = self._tasks.get(game_id)
             if task is None or task.done():
                 raise ConflictError("game_not_running", "游戏当前未运行")
+            self._terminal_reasons[game_id] = GameStatus.CANCELLED.value
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
             game.status = GameStatus.CANCELLED
@@ -122,6 +130,8 @@ class GameService:
         )
         for _, task in running:
             task.cancel()
+        for game_id, _ in running:
+            self._terminal_reasons[game_id] = GameStatus.INTERRUPTED.value
         await asyncio.gather(
             *(task for _, task in running),
             return_exceptions=True,

@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 
 from werewolf_game.application.errors import ConflictError, NotFoundError
 from werewolf_game.application.locks import GameOperationLocks
+from werewolf_game.application.metrics import ApplicationMetrics, NullMetrics
 from werewolf_game.application.ports import GameHistorian, GameRepository
 from werewolf_game.domain.models import GameState, GameStatus
 from werewolf_game.domain.reviews import (
@@ -27,11 +28,13 @@ class GameReviewService:
         *,
         max_concurrent_reviews: int = 1,
         operation_locks: GameOperationLocks | None = None,
+        metrics: ApplicationMetrics | None = None,
     ) -> None:
         self.repository = repository
         self.historian = historian
         self._semaphore = asyncio.Semaphore(max_concurrent_reviews)
         self.operation_locks = operation_locks or GameOperationLocks()
+        self.metrics = metrics or NullMetrics()
         self._tasks: dict[str, asyncio.Task[None]] = {}
 
     async def request_review(self, game_id: str) -> GameReview:
@@ -58,6 +61,7 @@ class GameReviewService:
                 self._execute(game, review),
                 name=f"review:{game_id}",
             )
+            self.metrics.review_started()
             return review
 
     async def get_review(self, game_id: str) -> GameReview:
@@ -130,6 +134,7 @@ class GameReviewService:
             review.completed_at = datetime.now(UTC)
             await asyncio.shield(self.repository.save_review(review))
             self._tasks.pop(game.id, None)
+            self.metrics.review_finished(review.status.value)
 
     async def shutdown(self) -> None:
         tasks = list(self._tasks.values())

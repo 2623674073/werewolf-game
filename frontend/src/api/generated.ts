@@ -186,6 +186,33 @@ export interface components {
       /** Player Count */
       player_count: number
     }
+    /** DayVoteEvent */
+    DayVoteEvent: {
+      /** Game Id */
+      game_id: string
+      /** Seq */
+      seq: number
+      /**
+       * Phase
+       * @enum {string}
+       */
+      phase: 'setup' | 'night' | 'day' | 'finished'
+      /**
+       * Visibility
+       * @enum {string}
+       */
+      visibility: 'public' | 'private' | 'internal'
+      /** Recipients */
+      recipients: string[]
+      /** Created At */
+      created_at: string
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      type: 'day_vote'
+      payload: components['schemas']['DayVotePayload']
+    }
     /** DayVotePayload */
     DayVotePayload: {
       /** Player */
@@ -198,6 +225,33 @@ export interface components {
       suspicion_level: number
     } & {
       [key: string]: unknown
+    }
+    /** DiscussionStartedEvent */
+    DiscussionStartedEvent: {
+      /** Game Id */
+      game_id: string
+      /** Seq */
+      seq: number
+      /**
+       * Phase
+       * @enum {string}
+       */
+      phase: 'setup' | 'night' | 'day' | 'finished'
+      /**
+       * Visibility
+       * @enum {string}
+       */
+      visibility: 'public' | 'private' | 'internal'
+      /** Recipients */
+      recipients: string[]
+      /** Created At */
+      created_at: string
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      type: 'discussion_started'
+      payload: components['schemas']['DiscussionStartedPayload']
     }
     /** DiscussionStartedPayload */
     DiscussionStartedPayload: {
@@ -218,36 +272,37 @@ export interface components {
       [key: string]: unknown
     }
     /** EventResponse */
-    EventResponse: {
+    EventResponse:
+      | components['schemas']['IdentityAssignedEvent']
+      | components['schemas']['GameStartedEvent']
+      | components['schemas']['PhaseStartedEvent']
+      | components['schemas']['DiscussionStartedEvent']
+      | components['schemas']['SpeakerTurnStartedEvent']
+      | components['schemas']['SpeechEvent']
+      | components['schemas']['LegacyModeratedSpeechEvent']
+      | components['schemas']['WerewolfVoteEvent']
+      | components['schemas']['SeerResultEvent']
+      | components['schemas']['WitchActionEvent']
+      | components['schemas']['DayVoteEvent']
+      | components['schemas']['HunterActionEvent']
+      | components['schemas']['NightResultEvent']
+      | components['schemas']['VoteResultEvent']
+      | components['schemas']['RolesRevealedEvent']
+      | components['schemas']['GameFinishedEvent']
+      | components['schemas']['TerminalErrorEvent']
+    /** FinishedPayload */
+    FinishedPayload: {
+      /** Winner */
+      winner: string
+    } & {
+      [key: string]: unknown
+    }
+    /** GameFinishedEvent */
+    GameFinishedEvent: {
       /** Game Id */
       game_id: string
       /** Seq */
       seq: number
-      /**
-       * Type
-       * @enum {string}
-       */
-      type:
-        | 'identity_assigned'
-        | 'game_started'
-        | 'night_started'
-        | 'day_started'
-        | 'discussion_started'
-        | 'speaker_turn_started'
-        | 'speech'
-        | 'speech_moderated'
-        | 'werewolf_vote'
-        | 'seer_result'
-        | 'witch_action'
-        | 'day_vote'
-        | 'hunter_action'
-        | 'night_result'
-        | 'vote_result'
-        | 'roles_revealed'
-        | 'game_finished'
-        | 'game_cancelled'
-        | 'game_interrupted'
-        | 'game_failed'
       /**
        * Phase
        * @enum {string}
@@ -260,37 +315,14 @@ export interface components {
       visibility: 'public' | 'private' | 'internal'
       /** Recipients */
       recipients: string[]
-      /** Payload */
-      payload:
-        | components['schemas']['IdentityPayload']
-        | components['schemas']['GameStartedPayload']
-        | components['schemas']['PhaseStartedPayload']
-        | components['schemas']['DiscussionStartedPayload']
-        | components['schemas']['SpeakerPayload']
-        | components['schemas']['SpeechPayload']
-        | components['schemas']['ModeratedSpeechPayload']
-        | components['schemas']['WerewolfVotePayload']
-        | components['schemas']['SeerResultPayload']
-        | components['schemas']['WitchActionPayload']
-        | components['schemas']['DayVotePayload']
-        | components['schemas']['HunterActionPayload']
-        | components['schemas']['NightResultPayload']
-        | components['schemas']['VoteResultPayload']
-        | components['schemas']['RolesRevealedPayload']
-        | components['schemas']['FinishedPayload']
-        | components['schemas']['ErrorPayload']
-        | {
-            [key: string]: unknown
-          }
       /** Created At */
       created_at: string
-    }
-    /** FinishedPayload */
-    FinishedPayload: {
-      /** Winner */
-      winner: string
-    } & {
-      [key: string]: unknown
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      type: 'game_finished'
+      payload: components['schemas']['FinishedPayload']
     }
     /** GameResponse */
     GameResponse: {
@@ -357,6 +389,33 @@ export interface components {
       /** Closing Comment */
       closing_comment: string
     }
+    /** GameStartedEvent */
+    GameStartedEvent: {
+      /** Game Id */
+      game_id: string
+      /** Seq */
+      seq: number
+      /**
+       * Phase
+       * @enum {string}
+       */
+      phase: 'setup' | 'night' | 'day' | 'finished'
+      /**
+       * Visibility
+       * @enum {string}
+       */
+      visibility: 'public' | 'private' | 'internal'
+      /** Recipients */
+      recipients: string[]
+      /** Created At */
+      created_at: string
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      type: 'game_started'
+      payload: components['schemas']['GameStartedPayload']
+    }
     /** GameStartedPayload */
     GameStartedPayload: {
       /** Players */
@@ -368,6 +427,33 @@ export interface components {
     HTTPValidationError: {
       /** Detail */
       detail?: components['schemas']['ValidationError'][]
+    }
+    /** HunterActionEvent */
+    HunterActionEvent: {
+      /** Game Id */
+      game_id: string
+      /** Seq */
+      seq: number
+      /**
+       * Phase
+       * @enum {string}
+       */
+      phase: 'setup' | 'night' | 'day' | 'finished'
+      /**
+       * Visibility
+       * @enum {string}
+       */
+      visibility: 'public' | 'private' | 'internal'
+      /** Recipients */
+      recipients: string[]
+      /** Created At */
+      created_at: string
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      type: 'hunter_action'
+      payload: components['schemas']['HunterActionPayload']
     }
     /** HunterActionPayload */
     HunterActionPayload: {
@@ -382,6 +468,33 @@ export interface components {
     } & {
       [key: string]: unknown
     }
+    /** IdentityAssignedEvent */
+    IdentityAssignedEvent: {
+      /** Game Id */
+      game_id: string
+      /** Seq */
+      seq: number
+      /**
+       * Phase
+       * @enum {string}
+       */
+      phase: 'setup' | 'night' | 'day' | 'finished'
+      /**
+       * Visibility
+       * @enum {string}
+       */
+      visibility: 'public' | 'private' | 'internal'
+      /** Recipients */
+      recipients: string[]
+      /** Created At */
+      created_at: string
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      type: 'identity_assigned'
+      payload: components['schemas']['IdentityPayload']
+    }
     /** IdentityPayload */
     IdentityPayload: {
       /** Player */
@@ -390,6 +503,33 @@ export interface components {
       role: string
     } & {
       [key: string]: unknown
+    }
+    /** LegacyModeratedSpeechEvent */
+    LegacyModeratedSpeechEvent: {
+      /** Game Id */
+      game_id: string
+      /** Seq */
+      seq: number
+      /**
+       * Phase
+       * @enum {string}
+       */
+      phase: 'setup' | 'night' | 'day' | 'finished'
+      /**
+       * Visibility
+       * @enum {string}
+       */
+      visibility: 'public' | 'private' | 'internal'
+      /** Recipients */
+      recipients: string[]
+      /** Created At */
+      created_at: string
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      type: 'speech_moderated'
+      payload: components['schemas']['ModeratedSpeechPayload']
     }
     /** ModeratedSpeechPayload */
     ModeratedSpeechPayload: {
@@ -405,12 +545,66 @@ export interface components {
     } & {
       [key: string]: unknown
     }
+    /** NightResultEvent */
+    NightResultEvent: {
+      /** Game Id */
+      game_id: string
+      /** Seq */
+      seq: number
+      /**
+       * Phase
+       * @enum {string}
+       */
+      phase: 'setup' | 'night' | 'day' | 'finished'
+      /**
+       * Visibility
+       * @enum {string}
+       */
+      visibility: 'public' | 'private' | 'internal'
+      /** Recipients */
+      recipients: string[]
+      /** Created At */
+      created_at: string
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      type: 'night_result'
+      payload: components['schemas']['NightResultPayload']
+    }
     /** NightResultPayload */
     NightResultPayload: {
       /** Deaths */
       deaths: string[]
     } & {
       [key: string]: unknown
+    }
+    /** PhaseStartedEvent */
+    PhaseStartedEvent: {
+      /** Game Id */
+      game_id: string
+      /** Seq */
+      seq: number
+      /**
+       * Phase
+       * @enum {string}
+       */
+      phase: 'setup' | 'night' | 'day' | 'finished'
+      /**
+       * Visibility
+       * @enum {string}
+       */
+      visibility: 'public' | 'private' | 'internal'
+      /** Recipients */
+      recipients: string[]
+      /** Created At */
+      created_at: string
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      type: 'day_started' | 'night_started'
+      payload: components['schemas']['PhaseStartedPayload']
     }
     /** PhaseStartedPayload */
     PhaseStartedPayload: {
@@ -462,12 +656,66 @@ export interface components {
       /** Role */
       role: string
     }
+    /** RolesRevealedEvent */
+    RolesRevealedEvent: {
+      /** Game Id */
+      game_id: string
+      /** Seq */
+      seq: number
+      /**
+       * Phase
+       * @enum {string}
+       */
+      phase: 'setup' | 'night' | 'day' | 'finished'
+      /**
+       * Visibility
+       * @enum {string}
+       */
+      visibility: 'public' | 'private' | 'internal'
+      /** Recipients */
+      recipients: string[]
+      /** Created At */
+      created_at: string
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      type: 'roles_revealed'
+      payload: components['schemas']['RolesRevealedPayload']
+    }
     /** RolesRevealedPayload */
     RolesRevealedPayload: {
       /** Players */
       players: components['schemas']['RevealedRole'][]
     } & {
       [key: string]: unknown
+    }
+    /** SeerResultEvent */
+    SeerResultEvent: {
+      /** Game Id */
+      game_id: string
+      /** Seq */
+      seq: number
+      /**
+       * Phase
+       * @enum {string}
+       */
+      phase: 'setup' | 'night' | 'day' | 'finished'
+      /**
+       * Visibility
+       * @enum {string}
+       */
+      visibility: 'public' | 'private' | 'internal'
+      /** Recipients */
+      recipients: string[]
+      /** Created At */
+      created_at: string
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      type: 'seer_result'
+      payload: components['schemas']['SeerResultPayload']
     }
     /** SeerResultPayload */
     SeerResultPayload: {
@@ -488,6 +736,13 @@ export interface components {
       authenticated: true
       /** Capabilities */
       capabilities: ('control' | 'public_view' | 'god_view')[]
+      /**
+       * Runtime Mode
+       * @enum {string}
+       */
+      runtime_mode: 'openai' | 'demo'
+      /** Version */
+      version: string
     }
     /** SpeakerPayload */
     SpeakerPayload: {
@@ -499,6 +754,147 @@ export interface components {
       discussion_round: number
       /** Discussion Kind */
       discussion_kind: string
+    } & {
+      [key: string]: unknown
+    }
+    /** SpeakerTurnStartedEvent */
+    SpeakerTurnStartedEvent: {
+      /** Game Id */
+      game_id: string
+      /** Seq */
+      seq: number
+      /**
+       * Phase
+       * @enum {string}
+       */
+      phase: 'setup' | 'night' | 'day' | 'finished'
+      /**
+       * Visibility
+       * @enum {string}
+       */
+      visibility: 'public' | 'private' | 'internal'
+      /** Recipients */
+      recipients: string[]
+      /** Created At */
+      created_at: string
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      type: 'speaker_turn_started'
+      payload: components['schemas']['SpeakerPayload']
+    }
+    /** SpeechDeltaFrame */
+    SpeechDeltaFrame: {
+      /** Game Id */
+      game_id: string
+      /**
+       * Phase
+       * @enum {string}
+       */
+      phase: 'setup' | 'night' | 'day' | 'finished'
+      /**
+       * Visibility
+       * @enum {string}
+       */
+      visibility: 'public' | 'private' | 'internal'
+      /** Recipients */
+      recipients: string[]
+      /** Created At */
+      created_at: string
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      type: 'speech_delta'
+      payload: components['schemas']['SpeechDeltaPayload']
+    }
+    /** SpeechDeltaPayload */
+    SpeechDeltaPayload: {
+      /** Player */
+      player: string
+      /** Round */
+      round: number
+      /** Discussion Round */
+      discussion_round: number
+      /** Discussion Kind */
+      discussion_kind: string
+      /** Content So Far */
+      content_so_far: string
+      /** Delta */
+      delta: string
+      /** Offset Ms */
+      offset_ms: number
+    } & {
+      [key: string]: unknown
+    }
+    /** SpeechEvent */
+    SpeechEvent: {
+      /** Game Id */
+      game_id: string
+      /** Seq */
+      seq: number
+      /**
+       * Phase
+       * @enum {string}
+       */
+      phase: 'setup' | 'night' | 'day' | 'finished'
+      /**
+       * Visibility
+       * @enum {string}
+       */
+      visibility: 'public' | 'private' | 'internal'
+      /** Recipients */
+      recipients: string[]
+      /** Created At */
+      created_at: string
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      type: 'speech'
+      payload: components['schemas']['SpeechPayload']
+    }
+    /** SpeechFailedFrame */
+    SpeechFailedFrame: {
+      /** Game Id */
+      game_id: string
+      /**
+       * Phase
+       * @enum {string}
+       */
+      phase: 'setup' | 'night' | 'day' | 'finished'
+      /**
+       * Visibility
+       * @enum {string}
+       */
+      visibility: 'public' | 'private' | 'internal'
+      /** Recipients */
+      recipients: string[]
+      /** Created At */
+      created_at: string
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      type: 'speech_failed'
+      payload: components['schemas']['SpeechFailedPayload']
+    }
+    /** SpeechFailedPayload */
+    SpeechFailedPayload: {
+      /** Player */
+      player: string
+      /** Round */
+      round: number
+      /** Discussion Round */
+      discussion_round: number
+      /** Discussion Kind */
+      discussion_kind: string
+      /**
+       * Content So Far
+       * @default
+       */
+      content_so_far: string
     } & {
       [key: string]: unknown
     }
@@ -522,14 +918,21 @@ export interface components {
       [key: string]: unknown
     }
     /** SpeechStreamFrameResponse */
-    SpeechStreamFrameResponse: {
+    SpeechStreamFrameResponse:
+      components['schemas']['SpeechDeltaFrame'] | components['schemas']['SpeechFailedFrame']
+    /** SpeechTraceChunkResponse */
+    SpeechTraceChunkResponse: {
+      /** Offset Ms */
+      offset_ms: number
+      /** Delta */
+      delta: string
+    }
+    /** TerminalErrorEvent */
+    TerminalErrorEvent: {
       /** Game Id */
       game_id: string
-      /**
-       * Type
-       * @enum {string}
-       */
-      type: 'speech_delta' | 'speech_failed'
+      /** Seq */
+      seq: number
       /**
        * Phase
        * @enum {string}
@@ -542,19 +945,14 @@ export interface components {
       visibility: 'public' | 'private' | 'internal'
       /** Recipients */
       recipients: string[]
-      /** Payload */
-      payload: {
-        [key: string]: unknown
-      }
       /** Created At */
       created_at: string
-    }
-    /** SpeechTraceChunkResponse */
-    SpeechTraceChunkResponse: {
-      /** Offset Ms */
-      offset_ms: number
-      /** Delta */
-      delta: string
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      type: 'game_cancelled' | 'game_failed' | 'game_interrupted'
+      payload: components['schemas']['ErrorPayload']
     }
     /** TurningPoint */
     TurningPoint: {
@@ -578,6 +976,33 @@ export interface components {
       /** Context */
       ctx?: Record<string, never>
     }
+    /** VoteResultEvent */
+    VoteResultEvent: {
+      /** Game Id */
+      game_id: string
+      /** Seq */
+      seq: number
+      /**
+       * Phase
+       * @enum {string}
+       */
+      phase: 'setup' | 'night' | 'day' | 'finished'
+      /**
+       * Visibility
+       * @enum {string}
+       */
+      visibility: 'public' | 'private' | 'internal'
+      /** Recipients */
+      recipients: string[]
+      /** Created At */
+      created_at: string
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      type: 'vote_result'
+      payload: components['schemas']['VoteResultPayload']
+    }
     /** VoteResultPayload */
     VoteResultPayload: {
       /** Voted Out */
@@ -588,6 +1013,33 @@ export interface components {
       hunter_shot: string | null
     } & {
       [key: string]: unknown
+    }
+    /** WerewolfVoteEvent */
+    WerewolfVoteEvent: {
+      /** Game Id */
+      game_id: string
+      /** Seq */
+      seq: number
+      /**
+       * Phase
+       * @enum {string}
+       */
+      phase: 'setup' | 'night' | 'day' | 'finished'
+      /**
+       * Visibility
+       * @enum {string}
+       */
+      visibility: 'public' | 'private' | 'internal'
+      /** Recipients */
+      recipients: string[]
+      /** Created At */
+      created_at: string
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      type: 'werewolf_vote'
+      payload: components['schemas']['WerewolfVotePayload']
     }
     /** WerewolfVotePayload */
     WerewolfVotePayload: {
@@ -601,6 +1053,33 @@ export interface components {
       team_coordination?: string | null
     } & {
       [key: string]: unknown
+    }
+    /** WitchActionEvent */
+    WitchActionEvent: {
+      /** Game Id */
+      game_id: string
+      /** Seq */
+      seq: number
+      /**
+       * Phase
+       * @enum {string}
+       */
+      phase: 'setup' | 'night' | 'day' | 'finished'
+      /**
+       * Visibility
+       * @enum {string}
+       */
+      visibility: 'public' | 'private' | 'internal'
+      /** Recipients */
+      recipients: string[]
+      /** Created At */
+      created_at: string
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      type: 'witch_action'
+      payload: components['schemas']['WitchActionPayload']
     }
     /** WitchActionPayload */
     WitchActionPayload: {

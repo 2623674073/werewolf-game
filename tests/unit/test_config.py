@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from werewolf_game.config import Settings
+from werewolf_game.config import EXAMPLE_APP_TOKEN, Settings
 
 
 def test_settings_reject_short_api_token() -> None:
@@ -22,3 +22,19 @@ def test_settings_do_not_expose_secrets() -> None:
     assert settings.llm_base_url == "http://model.example/v1"
     assert settings.llm_timeout == 45
     assert settings.max_concurrent_games == 4
+
+
+def test_demo_settings_do_not_require_model_credentials() -> None:
+    settings = Settings(
+        runtime_mode="demo",
+        app_api_token="token-with-at-least-24-characters",
+    )
+    assert settings.runtime_mode == "demo"
+
+
+def test_settings_reject_example_token() -> None:
+    with pytest.raises(ValidationError):
+        Settings(
+            runtime_mode="demo",
+            app_api_token=EXAMPLE_APP_TOKEN,
+        )

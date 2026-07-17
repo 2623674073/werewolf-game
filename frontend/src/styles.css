@@ -58,6 +58,29 @@ select:focus-visible {
   letter-spacing: 0.22em;
   text-transform: uppercase;
 }
+
+.runtime-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 3px 9px;
+  border: 1px solid color-mix(in srgb, var(--gold) 45%, transparent);
+  border-radius: 999px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.runtime-demo {
+  color: #d9c58c;
+  background: rgb(164 124 39 / 12%);
+}
+
+.runtime-live {
+  color: #87d7c7;
+  border-color: rgb(92 198 176 / 45%);
+  background: rgb(40 121 107 / 12%);
+}
 .seal {
   display: grid;
   place-items: center;

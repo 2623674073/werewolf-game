@@ -15,6 +15,7 @@ from werewolf_game.application.events import (
     EventBroker,
     EventCoordinator,
     StreamEvent,
+    SubscriptionCapacityError,
     TransientGameEvent,
 )
 from werewolf_game.application.ports import DiscussionActivity, SpeechTraceChunk
@@ -134,6 +135,9 @@ class FakeRuntime:
     async def close(self, game_id: str) -> None:
         self.closed.append(game_id)
 
+    async def shutdown(self) -> None:
+        return None
+
 
 class StreamingRuntime(FakeRuntime):
     async def discuss(
@@ -224,6 +228,16 @@ async def test_transient_speech_is_private_and_never_persisted() -> None:
     await asyncio.gather(public_task, return_exceptions=True)
     await public_stream.aclose()
     await god_stream.aclose()
+
+
+async def test_event_broker_rejects_connections_over_capacity() -> None:
+    broker = EventBroker(max_subscribers=1)
+    stream = broker.subscribe("capacity", include_private=False)
+    assert broker.subscriber_count == 1
+    with pytest.raises(SubscriptionCapacityError):
+        broker.subscribe("other", include_private=False)
+    await stream.aclose()
+    assert broker.subscriber_count == 0
 
 
 async def test_engine_runs_offline_game_and_closes_runtime() -> None:

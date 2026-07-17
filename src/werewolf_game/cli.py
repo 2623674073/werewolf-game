@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 from collections.abc import Sequence
+from pathlib import Path
+from tempfile import NamedTemporaryFile
 from uuid import uuid4
 
 import uvicorn
@@ -17,6 +19,7 @@ from werewolf_game.infrastructure.agentscope_runtime import (
     build_openai_compatible_model,
 )
 from werewolf_game.infrastructure.database import Database
+from werewolf_game.infrastructure.demo import DemoAgentRuntime
 from werewolf_game.infrastructure.logging import configure_logging
 from werewolf_game.infrastructure.repository import SqliteGameRepository
 
@@ -40,6 +43,12 @@ def build_game_parser() -> argparse.ArgumentParser:
         choices=("public", "god"),
         default="public",
         help="对话视角：public 公开信息，god 全知信息",
+    )
+    doctor = subparsers.add_parser("doctor", help="检查本地配置与运行环境")
+    doctor.add_argument(
+        "--live-model",
+        action="store_true",
+        help="实际调用模型验证流式与结构化输出",
     )
     return parser
 
@@ -72,6 +81,8 @@ def game_main(argv: Sequence[str] | None = None) -> None:
                 )
             )
         )
+    if args.command == "doctor":
+        raise SystemExit(asyncio.run(_run_doctor(live_model=args.live_model)))
 
 
 async def _run_game(
@@ -86,28 +97,7 @@ async def _run_game(
     database = Database(settings.database_url)
     await database.create_schema()
     repository = SqliteGameRepository(database.session_factory)
-    dialogue_model = build_openai_compatible_model(
-        api_key=settings.llm_api_key.get_secret_value(),
-        model_name=settings.llm_model_id,
-        base_url=settings.llm_base_url,
-        timeout_seconds=settings.llm_timeout,
-        max_retries=settings.model_max_retries,
-        stream=True,
-    )
-    decision_model = build_openai_compatible_model(
-        api_key=settings.llm_api_key.get_secret_value(),
-        model_name=settings.llm_model_id,
-        base_url=settings.llm_base_url,
-        timeout_seconds=settings.llm_timeout,
-        max_retries=settings.model_max_retries,
-    )
-    runtime = AgentScopeRuntime(
-        model=dialogue_model,
-        decision_model=decision_model,
-        max_model_concurrency=settings.max_model_concurrency,
-        timeout_seconds=settings.llm_timeout,
-        max_retries=0,
-    )
+    runtime = _build_runtime(settings)
     broker = EventBroker()
     events = EventCoordinator(repository, broker)
     game = GameState(id=str(uuid4()), player_count=player_count)
@@ -128,12 +118,131 @@ async def _run_game(
     finally:
         if presenter_task is not None and not presenter_task.done():
             presenter_task.cancel()
+        await runtime.shutdown()
         await database.dispose()
 
 
 def _print_effective_model(settings: Settings) -> None:
+    print(f"运行模式：{settings.runtime_mode}")
+    if settings.runtime_mode == "demo":
+        print("模型：离线确定性 Runtime（不会调用外部服务）")
+        return
+    assert settings.llm_api_key is not None
     key = settings.llm_api_key.get_secret_value()
     suffix = key[-4:] if len(key) >= 4 else ""
     print(f"模型：{settings.llm_model_id}")
     print(f"Base URL：{settings.llm_base_url}")
     print(f"API Key：***{suffix}")
+
+
+def _build_runtime(settings: Settings) -> AgentScopeRuntime | DemoAgentRuntime:
+    if settings.runtime_mode == "demo":
+        return DemoAgentRuntime()
+    assert settings.llm_api_key is not None
+    assert settings.llm_model_id is not None
+    assert settings.llm_base_url is not None
+    dialogue_model = build_openai_compatible_model(
+        api_key=settings.llm_api_key.get_secret_value(),
+        model_name=settings.llm_model_id,
+        base_url=settings.llm_base_url,
+        timeout_seconds=settings.llm_timeout,
+        max_retries=settings.model_max_retries,
+        stream=True,
+        trust_env=settings.llm_trust_env,
+    )
+    decision_model = build_openai_compatible_model(
+        api_key=settings.llm_api_key.get_secret_value(),
+        model_name=settings.llm_model_id,
+        base_url=settings.llm_base_url,
+        timeout_seconds=settings.llm_timeout,
+        max_retries=settings.model_max_retries,
+        trust_env=settings.llm_trust_env,
+    )
+    return AgentScopeRuntime(
+        model=dialogue_model,
+        decision_model=decision_model,
+        max_model_concurrency=settings.max_model_concurrency,
+        timeout_seconds=settings.llm_timeout,
+        max_retries=0,
+    )
+
+
+async def _run_doctor(*, live_model: bool) -> int:
+    from werewolf_game.domain.models import GamePlayer
+    from werewolf_game.domain.schemas import vote_model
+
+    settings = Settings()  # type: ignore[call-arg]
+    _print_effective_model(settings)
+    failures: list[str] = []
+    database = Database(settings.database_url)
+    try:
+        if await SqliteGameRepository(database.session_factory).ping():
+            print("[OK] 数据库连接")
+        else:
+            failures.append("数据库连接失败")
+    except Exception:
+        failures.append("数据库连接失败")
+    finally:
+        await database.dispose()
+
+    dist = Path(settings.web_dist_dir)
+    if (dist / "index.html").is_file():
+        print("[OK] 前端构建产物")
+    else:
+        failures.append(f"未找到前端构建：{dist / 'index.html'}")
+
+    database_path = Path("data")
+    try:
+        await asyncio.to_thread(_check_writable_directory, database_path)
+        print("[OK] 数据目录可写")
+    except OSError:
+        failures.append("数据目录不可写")
+
+    if live_model:
+        runtime = _build_runtime(settings)
+        game = GameState(id="doctor", player_count=1)
+        game.players = [GamePlayer("诊断席", "刘备", "村民")]
+        try:
+            await runtime.setup(game, {"诊断席": "你正在执行连接诊断，请简短回复。"})
+            try:
+                activities = [
+                    item
+                    async for item in runtime.discuss(
+                        game.id, ["诊断席"], "请回复连接正常", 1
+                    )
+                ]
+                if not any(item.kind == "speech_completed" for item in activities):
+                    raise RuntimeError("未收到完整回复")
+                print("[OK] 模型流式回复")
+            except Exception:
+                failures.append("模型流式回复验证失败")
+
+            try:
+                decision = await runtime.decide(
+                    game.id,
+                    "诊断席",
+                    "请选择诊断目标",
+                    vote_model(["诊断目标"]),
+                )
+                if decision is None:
+                    raise RuntimeError("未收到结构化输出")
+                print("[OK] 模型结构化输出")
+            except Exception:
+                failures.append("模型结构化输出验证失败")
+        except Exception:
+            failures.append("模型会话初始化失败")
+        finally:
+            await runtime.close(game.id)
+            await runtime.shutdown()
+    else:
+        print("[SKIP] 模型调用（使用 --live-model 启用）")
+
+    for failure in failures:
+        print(f"[FAIL] {failure}")
+    return 1 if failures else 0
+
+
+def _check_writable_directory(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    with NamedTemporaryFile(dir=path, prefix="doctor-", delete=True):
+        pass

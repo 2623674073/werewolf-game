@@ -18,6 +18,7 @@ import { EventTimeline } from '../components/EventTimeline'
 import { GameReviewPanel } from '../components/GameReviewPanel'
 import { PlaybackControls } from '../components/PlaybackControls'
 import { PlayerBoard } from '../components/PlayerBoard'
+import { RuntimeBadge } from '../components/RuntimeBadge'
 import { projectGame } from '../game/projection'
 import { useGameStream } from '../hooks/useGameStream'
 import { usePlaybackClock } from '../hooks/usePlaybackClock'
@@ -105,6 +106,7 @@ export function GamePage() {
             {game.player_count} 人局 · 第 {game.round_number} 回合
           </strong>
         </div>
+        <RuntimeBadge />
         <div className={`connection connection-${connection}`}>
           <Radio size={14} />
           {connectionLabel(connection)}

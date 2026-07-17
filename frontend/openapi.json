@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Werewolf Game API",
-    "version": "0.2.0"
+    "version": "0.3.0"
   },
   "paths": {
     "/api/v1/session": {
@@ -599,6 +599,59 @@
         "required": ["player_count"],
         "title": "CreateGameRequest"
       },
+      "DayVoteEvent": {
+        "properties": {
+          "game_id": {
+            "type": "string",
+            "title": "Game Id"
+          },
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
+          "phase": {
+            "type": "string",
+            "enum": ["setup", "night", "day", "finished"],
+            "title": "Phase"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["public", "private", "internal"],
+            "title": "Visibility"
+          },
+          "recipients": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Recipients"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "type": {
+            "type": "string",
+            "const": "day_vote",
+            "title": "Type"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/DayVotePayload"
+          }
+        },
+        "type": "object",
+        "required": [
+          "game_id",
+          "seq",
+          "phase",
+          "visibility",
+          "recipients",
+          "created_at",
+          "type",
+          "payload"
+        ],
+        "title": "DayVoteEvent"
+      },
       "DayVotePayload": {
         "properties": {
           "player": {
@@ -622,6 +675,59 @@
         "type": "object",
         "required": ["player", "vote", "reason", "suspicion_level"],
         "title": "DayVotePayload"
+      },
+      "DiscussionStartedEvent": {
+        "properties": {
+          "game_id": {
+            "type": "string",
+            "title": "Game Id"
+          },
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
+          "phase": {
+            "type": "string",
+            "enum": ["setup", "night", "day", "finished"],
+            "title": "Phase"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["public", "private", "internal"],
+            "title": "Visibility"
+          },
+          "recipients": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Recipients"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "type": {
+            "type": "string",
+            "const": "discussion_started",
+            "title": "Type"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/DiscussionStartedPayload"
+          }
+        },
+        "type": "object",
+        "required": [
+          "game_id",
+          "seq",
+          "phase",
+          "visibility",
+          "recipients",
+          "created_at",
+          "type",
+          "payload"
+        ],
+        "title": "DiscussionStartedEvent"
       },
       "DiscussionStartedPayload": {
         "properties": {
@@ -665,6 +771,99 @@
         "title": "ErrorPayload"
       },
       "EventResponse": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/IdentityAssignedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/GameStartedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/PhaseStartedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/DiscussionStartedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/SpeakerTurnStartedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/SpeechEvent"
+          },
+          {
+            "$ref": "#/components/schemas/LegacyModeratedSpeechEvent"
+          },
+          {
+            "$ref": "#/components/schemas/WerewolfVoteEvent"
+          },
+          {
+            "$ref": "#/components/schemas/SeerResultEvent"
+          },
+          {
+            "$ref": "#/components/schemas/WitchActionEvent"
+          },
+          {
+            "$ref": "#/components/schemas/DayVoteEvent"
+          },
+          {
+            "$ref": "#/components/schemas/HunterActionEvent"
+          },
+          {
+            "$ref": "#/components/schemas/NightResultEvent"
+          },
+          {
+            "$ref": "#/components/schemas/VoteResultEvent"
+          },
+          {
+            "$ref": "#/components/schemas/RolesRevealedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/GameFinishedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/TerminalErrorEvent"
+          }
+        ],
+        "title": "EventResponse",
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "day_started": "#/components/schemas/PhaseStartedEvent",
+            "day_vote": "#/components/schemas/DayVoteEvent",
+            "discussion_started": "#/components/schemas/DiscussionStartedEvent",
+            "game_cancelled": "#/components/schemas/TerminalErrorEvent",
+            "game_failed": "#/components/schemas/TerminalErrorEvent",
+            "game_finished": "#/components/schemas/GameFinishedEvent",
+            "game_interrupted": "#/components/schemas/TerminalErrorEvent",
+            "game_started": "#/components/schemas/GameStartedEvent",
+            "hunter_action": "#/components/schemas/HunterActionEvent",
+            "identity_assigned": "#/components/schemas/IdentityAssignedEvent",
+            "night_result": "#/components/schemas/NightResultEvent",
+            "night_started": "#/components/schemas/PhaseStartedEvent",
+            "roles_revealed": "#/components/schemas/RolesRevealedEvent",
+            "seer_result": "#/components/schemas/SeerResultEvent",
+            "speaker_turn_started": "#/components/schemas/SpeakerTurnStartedEvent",
+            "speech": "#/components/schemas/SpeechEvent",
+            "speech_moderated": "#/components/schemas/LegacyModeratedSpeechEvent",
+            "vote_result": "#/components/schemas/VoteResultEvent",
+            "werewolf_vote": "#/components/schemas/WerewolfVoteEvent",
+            "witch_action": "#/components/schemas/WitchActionEvent"
+          }
+        }
+      },
+      "FinishedPayload": {
+        "properties": {
+          "winner": {
+            "type": "string",
+            "title": "Winner"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": ["winner"],
+        "title": "FinishedPayload"
+      },
+      "GameFinishedEvent": {
         "properties": {
           "game_id": {
             "type": "string",
@@ -673,32 +872,6 @@
           "seq": {
             "type": "integer",
             "title": "Seq"
-          },
-          "type": {
-            "type": "string",
-            "enum": [
-              "identity_assigned",
-              "game_started",
-              "night_started",
-              "day_started",
-              "discussion_started",
-              "speaker_turn_started",
-              "speech",
-              "speech_moderated",
-              "werewolf_vote",
-              "seer_result",
-              "witch_action",
-              "day_vote",
-              "hunter_action",
-              "night_result",
-              "vote_result",
-              "roles_revealed",
-              "game_finished",
-              "game_cancelled",
-              "game_interrupted",
-              "game_failed"
-            ],
-            "title": "Type"
           },
           "phase": {
             "type": "string",
@@ -717,95 +890,31 @@
             "type": "array",
             "title": "Recipients"
           },
-          "payload": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/IdentityPayload"
-              },
-              {
-                "$ref": "#/components/schemas/GameStartedPayload"
-              },
-              {
-                "$ref": "#/components/schemas/PhaseStartedPayload"
-              },
-              {
-                "$ref": "#/components/schemas/DiscussionStartedPayload"
-              },
-              {
-                "$ref": "#/components/schemas/SpeakerPayload"
-              },
-              {
-                "$ref": "#/components/schemas/SpeechPayload"
-              },
-              {
-                "$ref": "#/components/schemas/ModeratedSpeechPayload"
-              },
-              {
-                "$ref": "#/components/schemas/WerewolfVotePayload"
-              },
-              {
-                "$ref": "#/components/schemas/SeerResultPayload"
-              },
-              {
-                "$ref": "#/components/schemas/WitchActionPayload"
-              },
-              {
-                "$ref": "#/components/schemas/DayVotePayload"
-              },
-              {
-                "$ref": "#/components/schemas/HunterActionPayload"
-              },
-              {
-                "$ref": "#/components/schemas/NightResultPayload"
-              },
-              {
-                "$ref": "#/components/schemas/VoteResultPayload"
-              },
-              {
-                "$ref": "#/components/schemas/RolesRevealedPayload"
-              },
-              {
-                "$ref": "#/components/schemas/FinishedPayload"
-              },
-              {
-                "$ref": "#/components/schemas/ErrorPayload"
-              },
-              {
-                "additionalProperties": true,
-                "type": "object"
-              }
-            ],
-            "title": "Payload"
-          },
           "created_at": {
             "type": "string",
             "title": "Created At"
+          },
+          "type": {
+            "type": "string",
+            "const": "game_finished",
+            "title": "Type"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/FinishedPayload"
           }
         },
         "type": "object",
         "required": [
           "game_id",
           "seq",
-          "type",
           "phase",
           "visibility",
           "recipients",
-          "payload",
-          "created_at"
+          "created_at",
+          "type",
+          "payload"
         ],
-        "title": "EventResponse"
-      },
-      "FinishedPayload": {
-        "properties": {
-          "winner": {
-            "type": "string",
-            "title": "Winner"
-          }
-        },
-        "additionalProperties": true,
-        "type": "object",
-        "required": ["winner"],
-        "title": "FinishedPayload"
+        "title": "GameFinishedEvent"
       },
       "GameResponse": {
         "properties": {
@@ -1023,6 +1132,59 @@
         ],
         "title": "GameReviewResult"
       },
+      "GameStartedEvent": {
+        "properties": {
+          "game_id": {
+            "type": "string",
+            "title": "Game Id"
+          },
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
+          "phase": {
+            "type": "string",
+            "enum": ["setup", "night", "day", "finished"],
+            "title": "Phase"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["public", "private", "internal"],
+            "title": "Visibility"
+          },
+          "recipients": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Recipients"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "type": {
+            "type": "string",
+            "const": "game_started",
+            "title": "Type"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/GameStartedPayload"
+          }
+        },
+        "type": "object",
+        "required": [
+          "game_id",
+          "seq",
+          "phase",
+          "visibility",
+          "recipients",
+          "created_at",
+          "type",
+          "payload"
+        ],
+        "title": "GameStartedEvent"
+      },
       "GameStartedPayload": {
         "properties": {
           "players": {
@@ -1050,6 +1212,59 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "HunterActionEvent": {
+        "properties": {
+          "game_id": {
+            "type": "string",
+            "title": "Game Id"
+          },
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
+          "phase": {
+            "type": "string",
+            "enum": ["setup", "night", "day", "finished"],
+            "title": "Phase"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["public", "private", "internal"],
+            "title": "Visibility"
+          },
+          "recipients": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Recipients"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "type": {
+            "type": "string",
+            "const": "hunter_action",
+            "title": "Type"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/HunterActionPayload"
+          }
+        },
+        "type": "object",
+        "required": [
+          "game_id",
+          "seq",
+          "phase",
+          "visibility",
+          "recipients",
+          "created_at",
+          "type",
+          "payload"
+        ],
+        "title": "HunterActionEvent"
       },
       "HunterActionPayload": {
         "properties": {
@@ -1089,6 +1304,59 @@
         "required": ["player", "shoot"],
         "title": "HunterActionPayload"
       },
+      "IdentityAssignedEvent": {
+        "properties": {
+          "game_id": {
+            "type": "string",
+            "title": "Game Id"
+          },
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
+          "phase": {
+            "type": "string",
+            "enum": ["setup", "night", "day", "finished"],
+            "title": "Phase"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["public", "private", "internal"],
+            "title": "Visibility"
+          },
+          "recipients": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Recipients"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "type": {
+            "type": "string",
+            "const": "identity_assigned",
+            "title": "Type"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/IdentityPayload"
+          }
+        },
+        "type": "object",
+        "required": [
+          "game_id",
+          "seq",
+          "phase",
+          "visibility",
+          "recipients",
+          "created_at",
+          "type",
+          "payload"
+        ],
+        "title": "IdentityAssignedEvent"
+      },
       "IdentityPayload": {
         "properties": {
           "player": {
@@ -1104,6 +1372,59 @@
         "type": "object",
         "required": ["player", "role"],
         "title": "IdentityPayload"
+      },
+      "LegacyModeratedSpeechEvent": {
+        "properties": {
+          "game_id": {
+            "type": "string",
+            "title": "Game Id"
+          },
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
+          "phase": {
+            "type": "string",
+            "enum": ["setup", "night", "day", "finished"],
+            "title": "Phase"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["public", "private", "internal"],
+            "title": "Visibility"
+          },
+          "recipients": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Recipients"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "type": {
+            "type": "string",
+            "const": "speech_moderated",
+            "title": "Type"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/ModeratedSpeechPayload"
+          }
+        },
+        "type": "object",
+        "required": [
+          "game_id",
+          "seq",
+          "phase",
+          "visibility",
+          "recipients",
+          "created_at",
+          "type",
+          "payload"
+        ],
+        "title": "LegacyModeratedSpeechEvent"
       },
       "ModeratedSpeechPayload": {
         "properties": {
@@ -1129,6 +1450,59 @@
         "required": ["player", "status", "categories"],
         "title": "ModeratedSpeechPayload"
       },
+      "NightResultEvent": {
+        "properties": {
+          "game_id": {
+            "type": "string",
+            "title": "Game Id"
+          },
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
+          "phase": {
+            "type": "string",
+            "enum": ["setup", "night", "day", "finished"],
+            "title": "Phase"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["public", "private", "internal"],
+            "title": "Visibility"
+          },
+          "recipients": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Recipients"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "type": {
+            "type": "string",
+            "const": "night_result",
+            "title": "Type"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/NightResultPayload"
+          }
+        },
+        "type": "object",
+        "required": [
+          "game_id",
+          "seq",
+          "phase",
+          "visibility",
+          "recipients",
+          "created_at",
+          "type",
+          "payload"
+        ],
+        "title": "NightResultEvent"
+      },
       "NightResultPayload": {
         "properties": {
           "deaths": {
@@ -1143,6 +1517,59 @@
         "type": "object",
         "required": ["deaths"],
         "title": "NightResultPayload"
+      },
+      "PhaseStartedEvent": {
+        "properties": {
+          "game_id": {
+            "type": "string",
+            "title": "Game Id"
+          },
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
+          "phase": {
+            "type": "string",
+            "enum": ["setup", "night", "day", "finished"],
+            "title": "Phase"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["public", "private", "internal"],
+            "title": "Visibility"
+          },
+          "recipients": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Recipients"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["night_started", "day_started"],
+            "title": "Type"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/PhaseStartedPayload"
+          }
+        },
+        "type": "object",
+        "required": [
+          "game_id",
+          "seq",
+          "phase",
+          "visibility",
+          "recipients",
+          "created_at",
+          "type",
+          "payload"
+        ],
+        "title": "PhaseStartedEvent"
       },
       "PhaseStartedPayload": {
         "properties": {
@@ -1292,6 +1719,59 @@
         "required": ["player", "role"],
         "title": "RevealedRole"
       },
+      "RolesRevealedEvent": {
+        "properties": {
+          "game_id": {
+            "type": "string",
+            "title": "Game Id"
+          },
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
+          "phase": {
+            "type": "string",
+            "enum": ["setup", "night", "day", "finished"],
+            "title": "Phase"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["public", "private", "internal"],
+            "title": "Visibility"
+          },
+          "recipients": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Recipients"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "type": {
+            "type": "string",
+            "const": "roles_revealed",
+            "title": "Type"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/RolesRevealedPayload"
+          }
+        },
+        "type": "object",
+        "required": [
+          "game_id",
+          "seq",
+          "phase",
+          "visibility",
+          "recipients",
+          "created_at",
+          "type",
+          "payload"
+        ],
+        "title": "RolesRevealedEvent"
+      },
       "RolesRevealedPayload": {
         "properties": {
           "players": {
@@ -1306,6 +1786,59 @@
         "type": "object",
         "required": ["players"],
         "title": "RolesRevealedPayload"
+      },
+      "SeerResultEvent": {
+        "properties": {
+          "game_id": {
+            "type": "string",
+            "title": "Game Id"
+          },
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
+          "phase": {
+            "type": "string",
+            "enum": ["setup", "night", "day", "finished"],
+            "title": "Phase"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["public", "private", "internal"],
+            "title": "Visibility"
+          },
+          "recipients": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Recipients"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "type": {
+            "type": "string",
+            "const": "seer_result",
+            "title": "Type"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/SeerResultPayload"
+          }
+        },
+        "type": "object",
+        "required": [
+          "game_id",
+          "seq",
+          "phase",
+          "visibility",
+          "recipients",
+          "created_at",
+          "type",
+          "payload"
+        ],
+        "title": "SeerResultEvent"
       },
       "SeerResultPayload": {
         "properties": {
@@ -1338,10 +1871,19 @@
             },
             "type": "array",
             "title": "Capabilities"
+          },
+          "runtime_mode": {
+            "type": "string",
+            "enum": ["openai", "demo"],
+            "title": "Runtime Mode"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
           }
         },
         "type": "object",
-        "required": ["capabilities"],
+        "required": ["capabilities", "runtime_mode", "version"],
         "title": "SessionResponse"
       },
       "SpeakerPayload": {
@@ -1367,6 +1909,282 @@
         "type": "object",
         "required": ["player", "round", "discussion_round", "discussion_kind"],
         "title": "SpeakerPayload"
+      },
+      "SpeakerTurnStartedEvent": {
+        "properties": {
+          "game_id": {
+            "type": "string",
+            "title": "Game Id"
+          },
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
+          "phase": {
+            "type": "string",
+            "enum": ["setup", "night", "day", "finished"],
+            "title": "Phase"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["public", "private", "internal"],
+            "title": "Visibility"
+          },
+          "recipients": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Recipients"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "type": {
+            "type": "string",
+            "const": "speaker_turn_started",
+            "title": "Type"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/SpeakerPayload"
+          }
+        },
+        "type": "object",
+        "required": [
+          "game_id",
+          "seq",
+          "phase",
+          "visibility",
+          "recipients",
+          "created_at",
+          "type",
+          "payload"
+        ],
+        "title": "SpeakerTurnStartedEvent"
+      },
+      "SpeechDeltaFrame": {
+        "properties": {
+          "game_id": {
+            "type": "string",
+            "title": "Game Id"
+          },
+          "phase": {
+            "type": "string",
+            "enum": ["setup", "night", "day", "finished"],
+            "title": "Phase"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["public", "private", "internal"],
+            "title": "Visibility"
+          },
+          "recipients": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Recipients"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "type": {
+            "type": "string",
+            "const": "speech_delta",
+            "title": "Type"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/SpeechDeltaPayload"
+          }
+        },
+        "type": "object",
+        "required": [
+          "game_id",
+          "phase",
+          "visibility",
+          "recipients",
+          "created_at",
+          "type",
+          "payload"
+        ],
+        "title": "SpeechDeltaFrame"
+      },
+      "SpeechDeltaPayload": {
+        "properties": {
+          "player": {
+            "type": "string",
+            "title": "Player"
+          },
+          "round": {
+            "type": "integer",
+            "title": "Round"
+          },
+          "discussion_round": {
+            "type": "integer",
+            "title": "Discussion Round"
+          },
+          "discussion_kind": {
+            "type": "string",
+            "title": "Discussion Kind"
+          },
+          "content_so_far": {
+            "type": "string",
+            "title": "Content So Far"
+          },
+          "delta": {
+            "type": "string",
+            "title": "Delta"
+          },
+          "offset_ms": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Offset Ms"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "player",
+          "round",
+          "discussion_round",
+          "discussion_kind",
+          "content_so_far",
+          "delta",
+          "offset_ms"
+        ],
+        "title": "SpeechDeltaPayload"
+      },
+      "SpeechEvent": {
+        "properties": {
+          "game_id": {
+            "type": "string",
+            "title": "Game Id"
+          },
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
+          "phase": {
+            "type": "string",
+            "enum": ["setup", "night", "day", "finished"],
+            "title": "Phase"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["public", "private", "internal"],
+            "title": "Visibility"
+          },
+          "recipients": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Recipients"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "type": {
+            "type": "string",
+            "const": "speech",
+            "title": "Type"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/SpeechPayload"
+          }
+        },
+        "type": "object",
+        "required": [
+          "game_id",
+          "seq",
+          "phase",
+          "visibility",
+          "recipients",
+          "created_at",
+          "type",
+          "payload"
+        ],
+        "title": "SpeechEvent"
+      },
+      "SpeechFailedFrame": {
+        "properties": {
+          "game_id": {
+            "type": "string",
+            "title": "Game Id"
+          },
+          "phase": {
+            "type": "string",
+            "enum": ["setup", "night", "day", "finished"],
+            "title": "Phase"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["public", "private", "internal"],
+            "title": "Visibility"
+          },
+          "recipients": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Recipients"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "type": {
+            "type": "string",
+            "const": "speech_failed",
+            "title": "Type"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/SpeechFailedPayload"
+          }
+        },
+        "type": "object",
+        "required": [
+          "game_id",
+          "phase",
+          "visibility",
+          "recipients",
+          "created_at",
+          "type",
+          "payload"
+        ],
+        "title": "SpeechFailedFrame"
+      },
+      "SpeechFailedPayload": {
+        "properties": {
+          "player": {
+            "type": "string",
+            "title": "Player"
+          },
+          "round": {
+            "type": "integer",
+            "title": "Round"
+          },
+          "discussion_round": {
+            "type": "integer",
+            "title": "Discussion Round"
+          },
+          "discussion_kind": {
+            "type": "string",
+            "title": "Discussion Kind"
+          },
+          "content_so_far": {
+            "type": "string",
+            "title": "Content So Far",
+            "default": ""
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": ["player", "round", "discussion_round", "discussion_kind"],
+        "title": "SpeechFailedPayload"
       },
       "SpeechPayload": {
         "properties": {
@@ -1415,15 +2233,48 @@
         "title": "SpeechPayload"
       },
       "SpeechStreamFrameResponse": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/SpeechDeltaFrame"
+          },
+          {
+            "$ref": "#/components/schemas/SpeechFailedFrame"
+          }
+        ],
+        "title": "SpeechStreamFrameResponse",
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "speech_delta": "#/components/schemas/SpeechDeltaFrame",
+            "speech_failed": "#/components/schemas/SpeechFailedFrame"
+          }
+        }
+      },
+      "SpeechTraceChunkResponse": {
+        "properties": {
+          "offset_ms": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Offset Ms"
+          },
+          "delta": {
+            "type": "string",
+            "title": "Delta"
+          }
+        },
+        "type": "object",
+        "required": ["offset_ms", "delta"],
+        "title": "SpeechTraceChunkResponse"
+      },
+      "TerminalErrorEvent": {
         "properties": {
           "game_id": {
             "type": "string",
             "title": "Game Id"
           },
-          "type": {
-            "type": "string",
-            "enum": ["speech_delta", "speech_failed"],
-            "title": "Type"
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
           },
           "phase": {
             "type": "string",
@@ -1442,43 +2293,31 @@
             "type": "array",
             "title": "Recipients"
           },
-          "payload": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Payload"
-          },
           "created_at": {
             "type": "string",
             "title": "Created At"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["game_cancelled", "game_interrupted", "game_failed"],
+            "title": "Type"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/ErrorPayload"
           }
         },
         "type": "object",
         "required": [
           "game_id",
-          "type",
+          "seq",
           "phase",
           "visibility",
           "recipients",
-          "payload",
-          "created_at"
+          "created_at",
+          "type",
+          "payload"
         ],
-        "title": "SpeechStreamFrameResponse"
-      },
-      "SpeechTraceChunkResponse": {
-        "properties": {
-          "offset_ms": {
-            "type": "integer",
-            "minimum": 0.0,
-            "title": "Offset Ms"
-          },
-          "delta": {
-            "type": "string",
-            "title": "Delta"
-          }
-        },
-        "type": "object",
-        "required": ["offset_ms", "delta"],
-        "title": "SpeechTraceChunkResponse"
+        "title": "TerminalErrorEvent"
       },
       "TurningPoint": {
         "properties": {
@@ -1543,6 +2382,59 @@
         "required": ["loc", "msg", "type"],
         "title": "ValidationError"
       },
+      "VoteResultEvent": {
+        "properties": {
+          "game_id": {
+            "type": "string",
+            "title": "Game Id"
+          },
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
+          "phase": {
+            "type": "string",
+            "enum": ["setup", "night", "day", "finished"],
+            "title": "Phase"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["public", "private", "internal"],
+            "title": "Visibility"
+          },
+          "recipients": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Recipients"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "type": {
+            "type": "string",
+            "const": "vote_result",
+            "title": "Type"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/VoteResultPayload"
+          }
+        },
+        "type": "object",
+        "required": [
+          "game_id",
+          "seq",
+          "phase",
+          "visibility",
+          "recipients",
+          "created_at",
+          "type",
+          "payload"
+        ],
+        "title": "VoteResultEvent"
+      },
       "VoteResultPayload": {
         "properties": {
           "voted_out": {
@@ -1577,6 +2469,59 @@
         "required": ["voted_out", "votes", "hunter_shot"],
         "title": "VoteResultPayload"
       },
+      "WerewolfVoteEvent": {
+        "properties": {
+          "game_id": {
+            "type": "string",
+            "title": "Game Id"
+          },
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
+          "phase": {
+            "type": "string",
+            "enum": ["setup", "night", "day", "finished"],
+            "title": "Phase"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["public", "private", "internal"],
+            "title": "Visibility"
+          },
+          "recipients": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Recipients"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "type": {
+            "type": "string",
+            "const": "werewolf_vote",
+            "title": "Type"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/WerewolfVotePayload"
+          }
+        },
+        "type": "object",
+        "required": [
+          "game_id",
+          "seq",
+          "phase",
+          "visibility",
+          "recipients",
+          "created_at",
+          "type",
+          "payload"
+        ],
+        "title": "WerewolfVoteEvent"
+      },
       "WerewolfVotePayload": {
         "properties": {
           "player": {
@@ -1607,6 +2552,59 @@
         "type": "object",
         "required": ["player", "target", "kill_strategy"],
         "title": "WerewolfVotePayload"
+      },
+      "WitchActionEvent": {
+        "properties": {
+          "game_id": {
+            "type": "string",
+            "title": "Game Id"
+          },
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
+          "phase": {
+            "type": "string",
+            "enum": ["setup", "night", "day", "finished"],
+            "title": "Phase"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["public", "private", "internal"],
+            "title": "Visibility"
+          },
+          "recipients": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Recipients"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "type": {
+            "type": "string",
+            "const": "witch_action",
+            "title": "Type"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/WitchActionPayload"
+          }
+        },
+        "type": "object",
+        "required": [
+          "game_id",
+          "seq",
+          "phase",
+          "visibility",
+          "recipients",
+          "created_at",
+          "type",
+          "payload"
+        ],
+        "title": "WitchActionEvent"
       },
       "WitchActionPayload": {
         "properties": {

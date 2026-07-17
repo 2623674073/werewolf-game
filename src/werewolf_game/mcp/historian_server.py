@@ -30,12 +30,18 @@ def create_historian_server(historian: GameHistorian) -> FastMCP:
 
 def build_server(settings: Settings | None = None) -> FastMCP:
     settings = settings or Settings()  # type: ignore[call-arg]
+    if settings.runtime_mode != "openai":
+        raise ValueError("historian MCP requires RUNTIME_MODE=openai")
+    assert settings.llm_api_key is not None
+    assert settings.llm_model_id is not None
+    assert settings.llm_base_url is not None
     model = build_openai_compatible_model(
         api_key=settings.llm_api_key.get_secret_value(),
         model_name=settings.llm_model_id,
         base_url=settings.llm_base_url,
         timeout_seconds=settings.llm_timeout,
         max_retries=settings.model_max_retries,
+        trust_env=settings.llm_trust_env,
     )
     return create_historian_server(
         ModelGameHistorian(model, timeout_seconds=settings.llm_timeout)

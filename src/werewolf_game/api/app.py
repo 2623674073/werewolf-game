@@ -18,6 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 
+from werewolf_game import __version__
 from werewolf_game.api.schemas import (
     CreateGameRequest,
     EventResponse,
@@ -36,10 +37,14 @@ from werewolf_game.application.errors import (
 from werewolf_game.application.events import (
     EventBroker,
     EventCoordinator,
+    EventSubscription,
     StreamEvent,
+    SubscriptionCapacityError,
     TransientGameEvent,
 )
 from werewolf_game.application.locks import GameOperationLocks
+from werewolf_game.application.metrics import ApplicationMetrics, NullMetrics
+from werewolf_game.application.ports import AgentRuntime
 from werewolf_game.application.review_service import GameReviewService
 from werewolf_game.application.service import GameService
 from werewolf_game.config import Settings
@@ -50,8 +55,10 @@ from werewolf_game.infrastructure.agentscope_runtime import (
     build_openai_compatible_model,
 )
 from werewolf_game.infrastructure.database import Database
+from werewolf_game.infrastructure.demo import DemoAgentRuntime, DemoGameHistorian
 from werewolf_game.infrastructure.historian import McpGameHistorian
 from werewolf_game.infrastructure.logging import request_id_var
+from werewolf_game.infrastructure.metrics import PrometheusMetrics
 from werewolf_game.infrastructure.repository import SqliteGameRepository
 
 
@@ -63,7 +70,9 @@ class AppComponents:
     broker: EventBroker
     service: GameService
     review_service: GameReviewService | None = None
-    historian: McpGameHistorian | None = None
+    historian: McpGameHistorian | DemoGameHistorian | None = None
+    metrics: ApplicationMetrics | None = None
+    runtime: AgentRuntime | None = None
 
 
 class ApiError(Exception):
@@ -81,30 +90,44 @@ def build_components(settings: Settings | None = None) -> AppComponents:
     settings = settings or Settings()  # type: ignore[call-arg]
     database = Database(settings.database_url)
     repository = SqliteGameRepository(database.session_factory)
-    broker = EventBroker()
-    dialogue_model = build_openai_compatible_model(
-        api_key=settings.llm_api_key.get_secret_value(),
-        model_name=settings.llm_model_id,
-        base_url=settings.llm_base_url,
-        timeout_seconds=settings.llm_timeout,
-        max_retries=settings.model_max_retries,
-        stream=True,
+    broker = EventBroker(max_subscribers=settings.max_sse_connections)
+    metrics: ApplicationMetrics = (
+        PrometheusMetrics() if settings.metrics_enabled else NullMetrics()
     )
-    decision_model = build_openai_compatible_model(
-        api_key=settings.llm_api_key.get_secret_value(),
-        model_name=settings.llm_model_id,
-        base_url=settings.llm_base_url,
-        timeout_seconds=settings.llm_timeout,
-        max_retries=settings.model_max_retries,
-    )
-    runtime = AgentScopeRuntime(
-        model=dialogue_model,
-        decision_model=decision_model,
-        max_model_concurrency=settings.max_model_concurrency,
-        timeout_seconds=settings.llm_timeout,
-        max_retries=0,
-    )
-    historian = McpGameHistorian(execution_timeout=settings.historian_timeout)
+    runtime: AgentRuntime
+    if settings.runtime_mode == "demo":
+        runtime = DemoAgentRuntime()
+        historian: McpGameHistorian | DemoGameHistorian = DemoGameHistorian()
+    else:
+        assert settings.llm_api_key is not None
+        assert settings.llm_model_id is not None
+        assert settings.llm_base_url is not None
+        dialogue_model = build_openai_compatible_model(
+            api_key=settings.llm_api_key.get_secret_value(),
+            model_name=settings.llm_model_id,
+            base_url=settings.llm_base_url,
+            timeout_seconds=settings.llm_timeout,
+            max_retries=settings.model_max_retries,
+            stream=True,
+            trust_env=settings.llm_trust_env,
+        )
+        decision_model = build_openai_compatible_model(
+            api_key=settings.llm_api_key.get_secret_value(),
+            model_name=settings.llm_model_id,
+            base_url=settings.llm_base_url,
+            timeout_seconds=settings.llm_timeout,
+            max_retries=settings.model_max_retries,
+            trust_env=settings.llm_trust_env,
+        )
+        runtime = AgentScopeRuntime(
+            model=dialogue_model,
+            decision_model=decision_model,
+            max_model_concurrency=settings.max_model_concurrency,
+            timeout_seconds=settings.llm_timeout,
+            max_retries=0,
+            metrics=metrics,
+        )
+        historian = McpGameHistorian(execution_timeout=settings.historian_timeout)
     events = EventCoordinator(repository, broker)
     operation_locks = GameOperationLocks()
     service = GameService(
@@ -113,11 +136,13 @@ def build_components(settings: Settings | None = None) -> AppComponents:
         max_concurrent_games=settings.max_concurrent_games,
         events=events,
         operation_locks=operation_locks,
+        metrics=metrics,
     )
     review_service = GameReviewService(
         repository,
         historian,
         operation_locks=operation_locks,
+        metrics=metrics,
     )
     return AppComponents(
         settings,
@@ -127,6 +152,8 @@ def build_components(settings: Settings | None = None) -> AppComponents:
         service,
         review_service,
         historian,
+        metrics,
+        runtime,
     )
 
 
@@ -149,9 +176,13 @@ def create_app(components: AppComponents | None = None) -> FastAPI:
                     if components.historian is not None:
                         await components.historian.close()
                 finally:
-                    await components.database.dispose()
+                    try:
+                        if components.runtime is not None:
+                            await components.runtime.shutdown()
+                    finally:
+                        await components.database.dispose()
 
-    app = FastAPI(title="Werewolf Game API", version="0.2.0", lifespan=lifespan)
+    app = FastAPI(title="Werewolf Game API", version=__version__, lifespan=lifespan)
     app.state.components = components
     app.add_middleware(
         CORSMiddleware,
@@ -176,6 +207,17 @@ def create_app(components: AppComponents | None = None) -> FastAPI:
         try:
             response = await call_next(request)
             response.headers["X-Request-ID"] = request.state.request_id
+            response.headers["X-Content-Type-Options"] = "nosniff"
+            response.headers["X-Frame-Options"] = "DENY"
+            response.headers["Referrer-Policy"] = "no-referrer"
+            response.headers["Permissions-Policy"] = (
+                "camera=(), microphone=(), geolocation=()"
+            )
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; script-src 'self'; style-src 'self' "
+                "'unsafe-inline'; img-src 'self' data:; connect-src 'self'; "
+                "font-src 'self'; frame-ancestors 'none'; base-uri 'self'"
+            )
             return response
         finally:
             request_id_var.reset(token)
@@ -204,7 +246,15 @@ def create_app(components: AppComponents | None = None) -> FastAPI:
         return _error_response(request, 422, "validation_error", "请求参数不合法")
 
     @app.exception_handler(Exception)
-    async def unexpected_error_handler(request: Request, _: Exception) -> JSONResponse:
+    async def unexpected_error_handler(
+        request: Request,
+        exc: Exception,
+    ) -> JSONResponse:
+        logger.error(
+            "unhandled API exception",
+            extra={"request_id": getattr(request.state, "request_id", None)},
+            exc_info=(type(exc), exc, exc.__traceback__),
+        )
         return _error_response(request, 500, "internal_error", "服务器内部错误")
 
     async def require_token(
@@ -221,10 +271,23 @@ def create_app(components: AppComponents | None = None) -> FastAPI:
 
     router = APIRouter(prefix="/api/v1", dependencies=[Depends(require_token)])
 
+    if components.settings.metrics_enabled:
+
+        @app.get(
+            "/metrics",
+            include_in_schema=False,
+            dependencies=[Depends(require_token)],
+        )
+        async def metrics_endpoint() -> Response:
+            body, content_type = PrometheusMetrics.render()
+            return Response(content=body, media_type=content_type)
+
     @router.get("/session", response_model=SessionResponse)
     async def get_session() -> SessionResponse:
         return SessionResponse(
             capabilities=["control", "public_view", "god_view"],
+            runtime_mode=components.settings.runtime_mode,
+            version=__version__,
         )
 
     @router.post(
@@ -346,8 +409,23 @@ def create_app(components: AppComponents | None = None) -> FastAPI:
             ) from exc
         if after_seq < 0:
             raise ApiError(422, "invalid_last_event_id", "Last-Event-ID 不能为负数")
+        try:
+            live = components.broker.subscribe(
+                game.id,
+                include_private=view == "god",
+            )
+        except SubscriptionCapacityError as exc:
+            raise ApiError(
+                429, "sse_capacity_reached", "实时观战连接数已达到上限"
+            ) from exc
         return StreamingResponse(
-            _event_stream(components, game, after_seq, view == "god"),
+            _event_stream(
+                components,
+                game,
+                after_seq,
+                view == "god",
+                live=live,
+            ),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
@@ -374,8 +452,15 @@ async def _event_stream(
     game: GameState,
     after_seq: int,
     include_private: bool,
+    *,
+    live: EventSubscription | None = None,
 ) -> AsyncIterator[str]:
-    live = components.broker.subscribe(game.id, include_private=include_private)
+    metrics = getattr(components, "metrics", None) or NullMetrics()
+    metrics.sse_connected()
+    live = live or components.broker.subscribe(
+        game.id,
+        include_private=include_private,
+    )
     pending: asyncio.Future[StreamEvent] = asyncio.ensure_future(anext(live))
     await asyncio.sleep(0)
     last_seq = after_seq
@@ -433,6 +518,7 @@ async def _event_stream(
         with suppress(asyncio.CancelledError, StopAsyncIteration):
             await pending
         await live.aclose()
+        metrics.sse_disconnected()
 
 
 def _sse(event: GameEvent) -> str:
@@ -507,15 +593,17 @@ def _review_response(review: GameReview) -> GameReviewResponse:
 
 
 def _event_response(event: GameEvent) -> EventResponse:
-    return EventResponse(
-        game_id=event.game_id,
-        seq=event.seq,
-        type=event.type,  # type: ignore[arg-type]
-        phase=event.phase.value,
-        visibility=event.visibility.value,
-        recipients=list(event.recipients),
-        payload=event.payload,
-        created_at=event.created_at.isoformat(),
+    return EventResponse.model_validate(
+        {
+            "game_id": event.game_id,
+            "seq": event.seq,
+            "type": event.type,
+            "phase": event.phase.value,
+            "visibility": event.visibility.value,
+            "recipients": list(event.recipients),
+            "payload": event.payload,
+            "created_at": event.created_at.isoformat(),
+        }
     )
 
 
