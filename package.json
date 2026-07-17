@@ -14,6 +14,6 @@
     "api:generate": "npm run api:generate --workspace werewolf-game-web"
   },
   "devDependencies": {
-    "concurrently": "^9.2.1"
+    "concurrently": "^10.0.3"
   }
 }
