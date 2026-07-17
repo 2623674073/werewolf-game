@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 from werewolf_game.api.app import build_components, create_app
@@ -8,6 +9,7 @@ from werewolf_game.config import Settings
 
 
 def main() -> None:
+    logging.getLogger("werewolf_game.api.app").setLevel(logging.CRITICAL)
     target = Path(__file__).resolve().parents[1] / "frontend" / "openapi.json"
     settings = Settings(
         llm_api_key="schema-only-key",

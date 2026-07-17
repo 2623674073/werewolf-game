@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 from werewolf_game.domain.reviews import GameReviewResult
 
@@ -76,6 +76,8 @@ class GameResponse(BaseModel):
 class SessionResponse(BaseModel):
     authenticated: Literal[True] = True
     capabilities: list[Literal["control", "public_view", "god_view"]]
+    runtime_mode: Literal["openai", "demo"]
+    version: str
 
 
 class IdentityPayload(ApiModel):
@@ -115,14 +117,14 @@ class SpeechTraceChunkResponse(BaseModel):
     delta: str
 
 
-class SpeechStreamFrameResponse(BaseModel):
-    game_id: str
-    type: Literal["speech_delta", "speech_failed"]
-    phase: PhaseValue
-    visibility: VisibilityValue
-    recipients: list[str]
-    payload: dict[str, Any]
-    created_at: str
+class SpeechDeltaPayload(SpeakerPayload):
+    content_so_far: str
+    delta: str
+    offset_ms: int = Field(ge=0)
+
+
+class SpeechFailedPayload(SpeakerPayload):
+    content_so_far: str = ""
 
 
 class ModeratedSpeechPayload(ApiModel):
@@ -191,37 +193,152 @@ class ErrorPayload(ApiModel):
     error_code: str | None = None
 
 
-EventPayload = (
-    IdentityPayload
-    | GameStartedPayload
-    | PhaseStartedPayload
-    | DiscussionStartedPayload
-    | SpeakerPayload
-    | SpeechPayload
-    | ModeratedSpeechPayload
-    | WerewolfVotePayload
-    | SeerResultPayload
-    | WitchActionPayload
-    | DayVotePayload
-    | HunterActionPayload
-    | NightResultPayload
-    | VoteResultPayload
-    | RolesRevealedPayload
-    | FinishedPayload
-    | ErrorPayload
-    | dict[str, Any]
-)
-
-
-class EventResponse(BaseModel):
+class EventEnvelope(BaseModel):
     game_id: str
     seq: int
-    type: EventType
     phase: PhaseValue
     visibility: VisibilityValue
     recipients: list[str]
-    payload: EventPayload
     created_at: str
+
+
+class IdentityAssignedEvent(EventEnvelope):
+    type: Literal["identity_assigned"]
+    payload: IdentityPayload
+
+
+class GameStartedEvent(EventEnvelope):
+    type: Literal["game_started"]
+    payload: GameStartedPayload
+
+
+class PhaseStartedEvent(EventEnvelope):
+    type: Literal["night_started", "day_started"]
+    payload: PhaseStartedPayload
+
+
+class DiscussionStartedEvent(EventEnvelope):
+    type: Literal["discussion_started"]
+    payload: DiscussionStartedPayload
+
+
+class SpeakerTurnStartedEvent(EventEnvelope):
+    type: Literal["speaker_turn_started"]
+    payload: SpeakerPayload
+
+
+class SpeechEvent(EventEnvelope):
+    type: Literal["speech"]
+    payload: SpeechPayload
+
+
+class LegacyModeratedSpeechEvent(EventEnvelope):
+    type: Literal["speech_moderated"]
+    payload: ModeratedSpeechPayload
+
+
+class WerewolfVoteEvent(EventEnvelope):
+    type: Literal["werewolf_vote"]
+    payload: WerewolfVotePayload
+
+
+class SeerResultEvent(EventEnvelope):
+    type: Literal["seer_result"]
+    payload: SeerResultPayload
+
+
+class WitchActionEvent(EventEnvelope):
+    type: Literal["witch_action"]
+    payload: WitchActionPayload
+
+
+class DayVoteEvent(EventEnvelope):
+    type: Literal["day_vote"]
+    payload: DayVotePayload
+
+
+class HunterActionEvent(EventEnvelope):
+    type: Literal["hunter_action"]
+    payload: HunterActionPayload
+
+
+class NightResultEvent(EventEnvelope):
+    type: Literal["night_result"]
+    payload: NightResultPayload
+
+
+class VoteResultEvent(EventEnvelope):
+    type: Literal["vote_result"]
+    payload: VoteResultPayload
+
+
+class RolesRevealedEvent(EventEnvelope):
+    type: Literal["roles_revealed"]
+    payload: RolesRevealedPayload
+
+
+class GameFinishedEvent(EventEnvelope):
+    type: Literal["game_finished"]
+    payload: FinishedPayload
+
+
+class TerminalErrorEvent(EventEnvelope):
+    type: Literal["game_cancelled", "game_interrupted", "game_failed"]
+    payload: ErrorPayload
+
+
+PersistedEvent = Annotated[
+    IdentityAssignedEvent
+    | GameStartedEvent
+    | PhaseStartedEvent
+    | DiscussionStartedEvent
+    | SpeakerTurnStartedEvent
+    | SpeechEvent
+    | LegacyModeratedSpeechEvent
+    | WerewolfVoteEvent
+    | SeerResultEvent
+    | WitchActionEvent
+    | DayVoteEvent
+    | HunterActionEvent
+    | NightResultEvent
+    | VoteResultEvent
+    | RolesRevealedEvent
+    | GameFinishedEvent
+    | TerminalErrorEvent,
+    Field(discriminator="type"),
+]
+
+
+class EventResponse(RootModel[PersistedEvent]):
+    pass
+
+
+class StreamEnvelope(BaseModel):
+    game_id: str
+    phase: PhaseValue
+    visibility: VisibilityValue
+    recipients: list[str]
+    created_at: str
+
+
+class SpeechDeltaFrame(StreamEnvelope):
+    type: Literal["speech_delta"]
+    payload: SpeechDeltaPayload
+
+
+class SpeechFailedFrame(StreamEnvelope):
+    type: Literal["speech_failed"]
+    payload: SpeechFailedPayload
+
+
+TransientSpeechFrame = Annotated[
+    SpeechDeltaFrame | SpeechFailedFrame,
+    Field(discriminator="type"),
+]
+
+
+class SpeechStreamFrameResponse(RootModel[TransientSpeechFrame]):
+    pass
 
 
 class ErrorDetail(BaseModel):

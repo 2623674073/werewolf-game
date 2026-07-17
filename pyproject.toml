@@ -1,20 +1,39 @@
 [project]
 name = "werewolf-game"
-version = "0.2.0"
-description = "Production-ready AgentScope werewolf game service"
+version = "0.3.0"
+description = "Production-oriented, event-driven multi-agent werewolf game"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
+license = "Apache-2.0"
+authors = [{ name = "2623674073" }]
+keywords = ["agentscope", "multi-agent", "fastapi", "sse", "mcp", "werewolf"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Framework :: FastAPI",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Games/Entertainment :: Board Games",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "agentscope==2.0.4",
     "aiosqlite>=0.20,<1",
     "alembic>=1.14,<2",
     "fastapi>=0.115,<1",
+    "httpx>=0.28,<1",
     "mcp>=1.28,<2",
     "pydantic>=2.13,<3",
     "pydantic-settings>=2.7,<3",
+    "prometheus-client>=0.22,<1",
     "sqlalchemy>=2.0,<3",
     "uvicorn>=0.34,<1",
 ]
+
+[project.urls]
+Homepage = "https://github.com/2623674073/werewolf-game"
+Repository = "https://github.com/2623674073/werewolf-game.git"
+Issues = "https://github.com/2623674073/werewolf-game/issues"
+Changelog = "https://github.com/2623674073/werewolf-game/blob/main/CHANGELOG.md"
 
 [project.scripts]
 werewolf-server = "werewolf_game.cli:server_main"
@@ -23,7 +42,6 @@ werewolf-historian-mcp = "werewolf_game.mcp.historian_server:main"
 
 [dependency-groups]
 dev = [
-    "httpx>=0.28,<1",
     "mypy>=1.14,<2",
     "pytest>=8,<10",
     "pytest-asyncio>=0.25,<2",
@@ -41,6 +59,7 @@ packages = ["src/werewolf_game"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = ["live: calls an explicitly configured external model service"]
 
 [tool.ruff]
 line-length = 88

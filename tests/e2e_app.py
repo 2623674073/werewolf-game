@@ -9,6 +9,8 @@ from tempfile import gettempdir
 
 from werewolf_game.api.app import AppComponents, create_app
 from werewolf_game.application.events import EventBroker, EventCoordinator
+from werewolf_game.application.locks import GameOperationLocks
+from werewolf_game.application.review_service import GameReviewService
 from werewolf_game.application.service import GameService
 from werewolf_game.config import Settings
 from werewolf_game.domain.models import (
@@ -19,6 +21,7 @@ from werewolf_game.domain.models import (
     Visibility,
 )
 from werewolf_game.infrastructure.database import Database
+from werewolf_game.infrastructure.demo import DemoGameHistorian
 from werewolf_game.infrastructure.repository import SqliteGameRepository
 
 TOKEN = "e2e-token-at-least-24-characters"
@@ -123,6 +126,7 @@ class DemoEngine:
             "vote_result",
             {"voted_out": "曹操", "votes": 5, "hunter_shot": None},
         )
+        await asyncio.sleep(1.2)
         game.status = GameStatus.COMPLETED
         game.phase = Phase.FINISHED
         game.winner = "villagers"
@@ -143,9 +147,7 @@ class DemoEngine:
 
 
 settings = Settings(
-    llm_api_key="e2e-model-key",
-    llm_model_id="offline-e2e",
-    llm_base_url="http://offline.invalid/v1",
+    runtime_mode="demo",
     app_api_token=TOKEN,
     database_url=f"sqlite+aiosqlite:///{E2E_DB_PATH.as_posix()}",
     web_dist_dir="frontend/dist",
@@ -155,10 +157,28 @@ asyncio.run(database.create_schema())
 repository = SqliteGameRepository(database.session_factory)
 broker = EventBroker()
 events = EventCoordinator(repository, broker)
+locks = GameOperationLocks()
 service = GameService(
     repository,
     lambda: DemoEngine(repository, events),
     max_concurrent_games=2,
     events=events,
+    operation_locks=locks,
 )
-app = create_app(AppComponents(settings, database, repository, broker, service))
+historian = DemoGameHistorian()
+review_service = GameReviewService(
+    repository,
+    historian,
+    operation_locks=locks,
+)
+app = create_app(
+    AppComponents(
+        settings,
+        database,
+        repository,
+        broker,
+        service,
+        review_service,
+        historian,
+    )
+)

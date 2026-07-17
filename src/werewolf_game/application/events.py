@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncGenerator, Sequence
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -27,9 +27,40 @@ class TransientGameEvent:
 StreamEvent = GameEvent | TransientGameEvent
 
 
+class EventSubscription(AsyncIterator[StreamEvent]):
+    def __init__(
+        self,
+        broker: EventBroker,
+        game_id: str,
+        queue: asyncio.Queue[StreamEvent | None],
+    ) -> None:
+        self._broker = broker
+        self._game_id = game_id
+        self._queue = queue
+        self._closed = False
+
+    def __aiter__(self) -> EventSubscription:
+        return self
+
+    async def __anext__(self) -> StreamEvent:
+        if self._closed:
+            raise StopAsyncIteration
+        event = await self._queue.get()
+        if event is None:
+            await self.aclose()
+            raise StopAsyncIteration
+        return event
+
+    async def aclose(self) -> None:
+        if not self._closed:
+            self._closed = True
+            self._broker._remove(self._game_id, self._queue)
+
+
 class EventBroker:
-    def __init__(self, queue_size: int = 100) -> None:
+    def __init__(self, queue_size: int = 100, max_subscribers: int = 100) -> None:
         self._queue_size = queue_size
+        self._max_subscribers = max_subscribers
         self._subscribers: dict[
             str, list[tuple[bool, asyncio.Queue[StreamEvent | None]]]
         ] = {}
@@ -53,26 +84,27 @@ class EventBroker:
                 queue.get_nowait()
             queue.put_nowait(None)
 
-    async def subscribe(
-        self, game_id: str, *, include_private: bool
-    ) -> AsyncGenerator[StreamEvent, None]:
+    def subscribe(self, game_id: str, *, include_private: bool) -> EventSubscription:
+        if self.subscriber_count >= self._max_subscribers:
+            raise SubscriptionCapacityError
         queue: asyncio.Queue[StreamEvent | None] = asyncio.Queue(self._queue_size)
         item = (include_private, queue)
         self._subscribers.setdefault(game_id, []).append(item)
-        try:
-            while True:
-                event = await queue.get()
-                if event is None:
-                    return
-                yield event
-        finally:
-            self._remove(game_id, queue)
+        return EventSubscription(self, game_id, queue)
+
+    @property
+    def subscriber_count(self) -> int:
+        return sum(len(items) for items in self._subscribers.values())
 
     def _remove(self, game_id: str, queue: asyncio.Queue[StreamEvent | None]) -> None:
         current = self._subscribers.get(game_id, [])
         self._subscribers[game_id] = [item for item in current if item[1] is not queue]
         if not self._subscribers[game_id]:
             self._subscribers.pop(game_id, None)
+
+
+class SubscriptionCapacityError(RuntimeError):
+    pass
 
 
 class EventCoordinator:

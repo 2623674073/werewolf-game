@@ -13,8 +13,10 @@ from agentscope.event import TextBlockDeltaEvent
 from agentscope.formatter import OpenAIMultiAgentFormatter
 from agentscope.message import AssistantMsg, SystemMsg, UserMsg
 from agentscope.model import OpenAIChatModel
+from httpx import AsyncClient
 from pydantic import BaseModel, SecretStr
 
+from werewolf_game.application.metrics import ApplicationMetrics, NullMetrics
 from werewolf_game.application.ports import DiscussionActivity, SpeechTraceChunk
 from werewolf_game.domain.models import GameState
 
@@ -30,6 +32,7 @@ def build_openai_compatible_model(
     max_retries: int,
     *,
     stream: bool = False,
+    trust_env: bool = False,
 ) -> OpenAIChatModel:
     return OpenAIChatModel(
         credential=OpenAICredential(
@@ -41,7 +44,13 @@ def build_openai_compatible_model(
         stream=stream,
         max_retries=max_retries,
         formatter=OpenAIMultiAgentFormatter(),
-        client_kwargs={"timeout": timeout_seconds},
+        client_kwargs={
+            "timeout": timeout_seconds,
+            "http_client": AsyncClient(
+                timeout=timeout_seconds,
+                trust_env=trust_env,
+            ),
+        },
     )
 
 
@@ -55,6 +64,7 @@ class AgentScopeRuntime:
         timeout_seconds: float,
         max_retries: int,
         agent_factory: AgentFactory | None = None,
+        metrics: ApplicationMetrics | None = None,
     ) -> None:
         self.model = model
         self.decision_model = decision_model or model
@@ -62,6 +72,7 @@ class AgentScopeRuntime:
         self.max_retries = max_retries
         self._semaphore = asyncio.Semaphore(max_model_concurrency)
         self._agent_factory = agent_factory or self._create_agent
+        self.metrics = metrics or NullMetrics()
         self._sessions: dict[str, dict[str, Any]] = {}
         self._prompts: dict[str, dict[str, str]] = {}
         self._stream_supported: bool | None = None
@@ -130,6 +141,7 @@ class AgentScopeRuntime:
                 started_at: datetime | None = None
                 started_clock: float | None = None
                 try:
+                    call_started = monotonic()
                     async with self._semaphore:
                         async with asyncio.timeout(self.timeout_seconds):
                             async for event in agent.reply_stream(prompt):
@@ -168,9 +180,16 @@ class AgentScopeRuntime:
                                     stream_started_at=started_at,
                                 )
                     self._stream_supported = True
+                    self.metrics.model_call(
+                        "discussion_stream", "success", monotonic() - call_started
+                    )
                 except Exception as exc:
+                    self.metrics.model_call(
+                        "discussion_stream", "error", monotonic() - call_started
+                    )
                     if not content and self._is_stream_unsupported(exc):
                         self._stream_supported = False
+                        self.metrics.model_call("discussion_fallback", "used", 0)
                         reply = await self._fallback_reply(agent, prompt)
                         if reply is not None:
                             content = reply.get_text_content()
@@ -226,6 +245,7 @@ class AgentScopeRuntime:
             prompt_message,
         ]
         try:
+            call_started = monotonic()
             response = await self._with_retry(
                 self.decision_model.generate_structured_output,
                 messages,
@@ -238,13 +258,29 @@ class AgentScopeRuntime:
                 metadata=result.model_dump(),
             )
             await agent.observe([prompt_message, private])
+            self.metrics.model_call(
+                "structured_decision", "success", monotonic() - call_started
+            )
             return result
         except Exception:
+            self.metrics.model_call(
+                "structured_decision", "error", monotonic() - call_started
+            )
             return None
 
     async def close(self, game_id: str) -> None:
         self._sessions.pop(game_id, None)
         self._prompts.pop(game_id, None)
+
+    async def shutdown(self) -> None:
+        clients: dict[int, AsyncClient] = {}
+        for model in (self.model, self.decision_model):
+            client = getattr(model, "client_kwargs", {}).get("http_client")
+            if isinstance(client, AsyncClient):
+                clients[id(client)] = client
+        await asyncio.gather(*(client.aclose() for client in clients.values()))
+        self._sessions.clear()
+        self._prompts.clear()
 
     def _selected(self, game_id: str, players: Sequence[str]) -> dict[str, Any]:
         return {name: self._sessions[game_id][name] for name in players}
@@ -262,6 +298,9 @@ class AgentScopeRuntime:
             except Exception as exc:
                 last_error = exc
                 if attempt < self.max_retries:
+                    self.metrics.model_retry(
+                        getattr(operation, "__name__", "model_operation")
+                    )
                     await asyncio.sleep(0.25 * (2**attempt))
         assert last_error is not None
         raise last_error

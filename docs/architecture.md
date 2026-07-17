@@ -9,7 +9,8 @@ FastAPI / CLI
       │
 GameService ── GameEngine ── Domain rules / character personas
       │              │
-      │          AgentRuntime ── AgentScope / OpenAI-compatible API
+      │          AgentRuntime ─┬─ AgentScope / OpenAI-compatible API
+      │                        └─ deterministic Demo Runtime
       │
 SQLite repository ── GameReviewService
       │                    │
@@ -45,3 +46,11 @@ SQLite repository ── GameReviewService
 ## 扩展原则
 
 后续前端只依赖 REST 与 SSE 契约。若增加其他模型供应商，实现新的 `AgentRuntime` 即可；若未来需要多进程部署，再将内存任务和 Broker 替换为外部队列，不改变领域规则和 API 事件结构。
+
+## 部署与可观测性
+
+Docker 镜像在构建期编译前端，运行时只包含 Python 环境、静态产物和 Alembic migrations。容器以非 root 用户和单 Uvicorn worker 运行；启动脚本先升级数据库，再启动 API。Compose 只白名单传递必要配置，数据目录使用独立卷。
+
+Prometheus 指标覆盖活跃对局、SSE 连接、模型调用、重试结果和史官任务。标签只描述操作和结果，不包含游戏 ID、玩家或请求文本。`/health/ready` 只反映数据库可用性，外部模型能力由 `werewolf-game doctor --live-model` 显式检查，避免上游模型波动造成服务反复摘流。
+
+公共事件 Schema 以 `type` 为 discriminator，将事件类型与对应 payload 绑定。临时流式帧使用独立判别联合，不进入正式事件列表。

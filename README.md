@@ -2,13 +2,29 @@
 
 > 让多个 AI Agent 在一场完整的三国主题狼人杀中自主推理、发言、欺骗与决策，并把全过程实时呈现在可回放的沉浸式观战控制台中。
 
-`AgentScope 2.0.4` · `OpenAI-compatible` · `FastAPI` · `React` · `SSE` · `SQLite` · `MCP`
+[![CI](https://github.com/2623674073/werewolf-game/actions/workflows/ci.yml/badge.svg)](https://github.com/2623674073/werewolf-game/actions/workflows/ci.yml)
+[![Security](https://github.com/2623674073/werewolf-game/actions/workflows/security.yml/badge.svg)](https://github.com/2623674073/werewolf-game/actions/workflows/security.yml)
+[![codecov](https://codecov.io/gh/2623674073/werewolf-game/graph/badge.svg)](https://codecov.io/gh/2623674073/werewolf-game)
+[![License](https://img.shields.io/github/license/2623674073/werewolf-game)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/2623674073/werewolf-game?include_prereleases)](https://github.com/2623674073/werewolf-game/releases)
+
+`v0.3.0` · `AgentScope 2.0.4` · `OpenAI-compatible` · `FastAPI` · `React` · `SSE` · `SQLite` · `MCP`
+
+> 当前是生产化设计的单机、单进程 AI 应用，而不是多租户公网 SaaS。仓库通过确定性 Demo Runtime 提供无模型 Key 的完整体验，真实模型能力必须单独验证。
 
 ## 项目介绍
 
 群雄夜宴不是一段简单的多 Agent 对话脚本，而是一套可运行、可观测、可复盘的 AI 社交推理应用。系统会为 6–12 位三国人物随机分配狼人、预言家、女巫、猎人和村民身份，由大模型驱动每位玩家独立思考，并按照夜晚行动、白天讨论、公开投票和胜负判定推进完整对局。
 
 项目既可以作为 AgentScope 2.0、多 Agent 编排和结构化输出的工程实践，也可以用于课堂演示、模型能力观察、OpenAI-compatible 接口联调，以及实时事件驱动前后端的参考实现。
+
+### 为什么不只是一个多 Agent Demo
+
+- 游戏规则、Agent Runtime、持久化和交付接口通过端口解耦，离线 Runtime 与真实模型执行同一套领域流程。
+- 正式事件先写入 SQLite 再推送，SSE 通过严格递增序号和 `Last-Event-ID` 恢复一致性。
+- 文本增量属于临时传输帧，最终发言才是持久化事实，兼顾实时体验、回放和数据库成本。
+- 单个模型调用失败可降级，系统级故障进入稳定终态并只暴露安全错误码。
+- MCP 不介入实时主链路，只在终局读取脱敏后的完整卷宗生成可引用证据的结构化复盘。
 
 ### 核心体验
 
@@ -105,7 +121,47 @@ werewolf_game/
 - Python 3.12
 - uv
 - Node.js 20+ 与 npm
-- 支持工具调用的 OpenAI-compatible 模型接口
+- Docker Desktop / Docker Engine（推荐体验方式）
+- 支持工具调用的 OpenAI-compatible 模型接口（真实模型模式）
+
+## 五分钟离线体验（推荐）
+
+离线模式会执行真实的游戏引擎、SQLite、REST、SSE、回放和史官流程，只把模型 Runtime 替换成确定性实现。界面会显示“离线演示”，不会把它伪装成真实模型能力。
+
+```powershell
+Copy-Item .env.example .env
+
+# 生成管理令牌并写入 .env
+$token = [Convert]::ToHexString(
+  [Security.Cryptography.RandomNumberGenerator]::GetBytes(24)
+).ToLower()
+# 将 .env 中 APP_API_TOKEN 替换为 $token，并设置 RUNTIME_MODE=demo
+
+docker compose up --build
+```
+
+Linux/macOS 可使用：
+
+```bash
+cp .env.example .env
+openssl rand -hex 24
+# 将输出写入 .env 的 APP_API_TOKEN，保持 RUNTIME_MODE=demo
+docker compose up --build
+```
+
+访问 `http://127.0.0.1:8000`，输入刚生成的管理令牌。容器会以非 root 用户运行、自动执行 Alembic、托管已构建前端，并把 SQLite 保存到命名卷。
+
+停止服务：
+
+```powershell
+docker compose down
+```
+
+`docker compose down -v` 会永久删除本地游戏数据卷，只有确定不再需要历史对局时才使用。
+
+### 真实模型模式
+
+源码运行时先安装依赖并创建 `.env`：
 
 ```powershell
 uv sync --group dev
@@ -116,11 +172,14 @@ Copy-Item .env.example .env
 编辑 `.env`，至少设置：
 
 ```dotenv
+RUNTIME_MODE=openai
 LLM_API_KEY=your-key
 LLM_MODEL_ID=deepseek-chat
 LLM_BASE_URL=https://api.deepseek.com
-APP_API_TOKEN=replace-with-at-least-24-characters
+APP_API_TOKEN=请替换为至少24位的随机令牌
 ```
+
+模型服务必须同时支持普通文本、流式 Chat Completions、`tools` 和强制工具选择。默认 `LLM_TRUST_ENV=false`，不会继承系统代理；兼容性边界和验证记录见 [模型兼容性](docs/model-compatibility.md)。
 
 常用配置：
 
@@ -129,6 +188,7 @@ APP_API_TOKEN=replace-with-at-least-24-characters
 | `LLM_MODEL_ID`          | 必填                                     | OpenAI-compatible 模型 ID  |
 | `LLM_BASE_URL`          | 必填                                     | OpenAI-compatible 接口地址 |
 | `LLM_TIMEOUT`           | `60`                                     | 单次模型调用超时（秒）     |
+| `LLM_TRUST_ENV`         | `false`                                  | 是否继承系统代理配置       |
 | `HISTORIAN_TIMEOUT`     | `600`                                    | 一次史官任务超时（秒）     |
 | `DATABASE_URL`          | `sqlite+aiosqlite:///./data/werewolf.db` | SQLite 地址                |
 | `CORS_ORIGINS`          | `[]`                                     | JSON 格式的前端来源白名单  |
@@ -136,12 +196,16 @@ APP_API_TOKEN=replace-with-at-least-24-characters
 | `MAX_MODEL_CONCURRENCY` | `8`                                      | 同时执行的模型调用数       |
 | `MODEL_MAX_RETRIES`     | `2`                                      | 模型调用重试次数           |
 | `WEB_DIST_DIR`          | `frontend/dist`                          | FastAPI 托管的前端构建目录 |
+| `METRICS_ENABLED`       | `true`                                   | 是否启用受鉴权的指标接口   |
+| `MAX_SSE_CONNECTIONS`   | `100`                                    | 单进程最大实时观战连接数   |
 
 密钥不会写入 API 响应或结构化日志。启动时只输出 API Key 后四位。
 
 ## 推荐启动方式
 
 项目有两种启动方式：正常使用时采用“构建前端后由 FastAPI 统一托管”，只有修改源码时才使用热更新开发模式。
+
+源码运行适合开发；首次体验优先使用上面的 Docker 方式。
 
 ### 第一次启动
 
@@ -170,7 +234,7 @@ uv run werewolf-server --host 127.0.0.1 --port 8000
 
 当终端显示 `Uvicorn running on http://127.0.0.1:8000` 后，浏览器访问 `http://127.0.0.1:8000`，输入 `.env` 中的 `APP_API_TOKEN`。
 
-`npm run build` 出现 `Some chunks are larger than 500 kB` 是前端包体积优化建议，不是构建失败。只要最后显示 `built in ...`，就已经成功生成 `frontend/dist`，可以继续启动服务。
+前端按登录、大厅、对局和复盘路径拆包；构建成功后会生成 `frontend/dist`，FastAPI 只托管该目录中的静态资源。
 
 ### 日常启动（推荐）
 
@@ -258,6 +322,20 @@ uv run werewolf-game run --players 6 --show-dialogue --view god
 uv run werewolf-game run --players 6 --show-dialogue --view public
 ```
 
+### 环境诊断
+
+默认只检查配置、数据库、数据目录和前端构建，不消耗模型额度：
+
+```powershell
+uv run werewolf-game doctor
+```
+
+显式验证真实模型的流式回复和结构化工具调用：
+
+```powershell
+uv run werewolf-game doctor --live-model
+```
+
 ## API
 
 除健康检查外，所有接口要求：
@@ -282,7 +360,10 @@ POST /api/v1/games/{id}/review
 GET  /api/v1/games/{id}/review
 GET  /health/live
 GET  /health/ready
+GET  /metrics
 ```
+
+启用指标后，管理端可携带同一个 Bearer Token 读取 `/metrics`。指标只使用运行模式、操作类型、结果等低基数标签，不包含游戏 ID、玩家名、Token 或模型提示词。
 
 删除接口只接受 `completed`、`draw`、`cancelled`、`interrupted` 和 `failed`
 状态。`created`、`running` 或正在生成史官复盘的对局会返回 `409`；删除成功返回
@@ -351,3 +432,26 @@ npm run e2e
 ```
 
 测试默认使用假模型，不访问外部模型服务。真实模型冒烟必须显式设置 `RUN_LIVE_TESTS=1`，并遵守先输出模型名、Base URL 和脱敏 Key 后缀的约定。结构化投票依赖接口支持 `tools` 和 `tool_choice`。
+
+```powershell
+$env:RUN_LIVE_TESTS = "1"
+uv run pytest -m live -s
+```
+
+离线稳定性回归会并发运行 4 局游戏和 20 个 SSE 观察者，并验证事件序号、慢客户端断开与终局收束。设计背景见 [架构说明](docs/architecture.md) 和 [ADR](docs/adr/README.md)。
+
+## 安全、许可证与贡献
+
+- 本项目面向本地或可信内网。管理 Token 可读取全知视角，不应直接暴露到不可信公网。
+- 代码和文档使用 [Apache-2.0](LICENSE)；AI 原创立绘与场景使用 [CC BY 4.0](ASSETS.md)。
+- 漏洞请按 [安全策略](SECURITY.md) 私下报告，不要公开 Token、数据库或私密事件。
+- 开发流程、契约要求与完整验收命令见 [贡献指南](CONTRIBUTING.md)。
+- 版本变更见 [Changelog](CHANGELOG.md)。
+
+## 已知边界
+
+- 只能运行一个 Uvicorn worker；内存任务和 SSE Broker 不支持跨进程协调。
+- 服务重启会把运行中游戏标记为 `interrupted`，不会恢复 Agent 上下文。
+- SQLite 适合单机演示和小规模并发，不提供跨节点高可用。
+- 单一管理 Token 不是用户体系或 RBAC；项目不支持匿名观战和真人玩家。
+- `v0.x` 阶段的 API 和事件契约可能在 Changelog 说明后调整。

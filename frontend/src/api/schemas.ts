@@ -27,6 +27,8 @@ export const gameSchema = z.object({
 export const sessionSchema = z.object({
   authenticated: z.literal(true),
   capabilities: z.array(z.enum(['control', 'public_view', 'god_view'])),
+  runtime_mode: z.enum(['openai', 'demo']),
+  version: z.string(),
 })
 
 export const eventSchema = z.object({

@@ -1,0 +1,40 @@
+services:
+  werewolf-game:
+    build:
+      context: .
+    image: ghcr.io/2623674073/werewolf-game:local
+    init: true
+    restart: unless-stopped
+    environment:
+      APP_API_TOKEN: ${APP_API_TOKEN:?set APP_API_TOKEN in .env}
+      RUNTIME_MODE: ${RUNTIME_MODE:-demo}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL_ID: ${LLM_MODEL_ID:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_TIMEOUT: ${LLM_TIMEOUT:-60}
+      LLM_TRUST_ENV: ${LLM_TRUST_ENV:-false}
+      HISTORIAN_TIMEOUT: ${HISTORIAN_TIMEOUT:-600}
+      CORS_ORIGINS: ${CORS_ORIGINS:-[]}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      MAX_CONCURRENT_GAMES: ${MAX_CONCURRENT_GAMES:-4}
+      MAX_MODEL_CONCURRENCY: ${MAX_MODEL_CONCURRENCY:-8}
+      MODEL_MAX_RETRIES: ${MODEL_MAX_RETRIES:-2}
+      METRICS_ENABLED: ${METRICS_ENABLED:-true}
+      MAX_SSE_CONNECTIONS: ${MAX_SSE_CONNECTIONS:-100}
+      DATABASE_URL: sqlite+aiosqlite:////app/data/werewolf.db
+      WEB_DIST_DIR: /app/frontend/dist
+    ports:
+      - "${PORT:-8000}:8000"
+    volumes:
+      - werewolf-data:/app/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+
+volumes:
+  werewolf-data:

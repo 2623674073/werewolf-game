@@ -8,7 +8,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 import werewolf_game.api.app as api_app
-from werewolf_game.api.app import AppComponents, create_app
+from werewolf_game.api.app import AppComponents, build_components, create_app
 from werewolf_game.application.errors import ConflictError
 from werewolf_game.application.events import EventBroker, TransientGameEvent
 from werewolf_game.application.locks import GameOperationLocks
@@ -124,6 +124,31 @@ def auth() -> dict[str, str]:
     return {"Authorization": f"Bearer {TOKEN}"}
 
 
+async def test_default_component_factory_supports_offline_demo_mode(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(
+        runtime_mode="demo",
+        app_api_token=TOKEN,
+        database_url=f"sqlite+aiosqlite:///{(tmp_path / 'demo.db').as_posix()}",
+        web_dist_dir=str(tmp_path / "missing-web"),
+    )
+    components = build_components(settings)
+    await components.database.create_schema()
+    client = AsyncClient(
+        transport=ASGITransport(app=create_app(components)),
+        base_url="http://test",
+    )
+    async with client:
+        session = await client.get("/api/v1/session", headers=auth())
+        assert session.json()["runtime_mode"] == "demo"
+    if components.historian is not None:
+        await components.historian.close()
+    if components.runtime is not None:
+        await components.runtime.shutdown()
+    await components.database.dispose()
+
+
 async def test_health_is_public_but_game_api_requires_bearer_token(
     tmp_path: Path,
 ) -> None:
@@ -138,7 +163,13 @@ async def test_health_is_public_but_game_api_requires_bearer_token(
         assert session.json() == {
             "authenticated": True,
             "capabilities": ["control", "public_view", "god_view"],
+            "runtime_mode": "openai",
+            "version": "0.3.0",
         }
+        assert (await client.get("/metrics")).status_code == 401
+        metrics = await client.get("/metrics", headers=auth())
+        assert metrics.status_code == 200
+        assert "werewolf_active_games" in metrics.text
     await database.dispose()
 
 
@@ -360,9 +391,14 @@ async def test_openapi_exposes_typed_session_game_and_event_contracts(
             "GameReviewResponse",
             "SpeechStreamFrameResponse",
         } <= set(components)
-        event_type = components["EventResponse"]["properties"]["type"]
-        assert "speech" in event_type["enum"]
-        assert "roles_revealed" in event_type["enum"]
+        event_schema = components["EventResponse"]
+        assert event_schema["discriminator"]["propertyName"] == "type"
+        mapping = event_schema["discriminator"]["mapping"]
+        assert mapping["speech"].endswith("/SpeechEvent")
+        assert mapping["roles_revealed"].endswith("/RolesRevealedEvent")
+        assert mapping["speech_moderated"].endswith("/LegacyModeratedSpeechEvent")
+        speech_payload = components["SpeechEvent"]["properties"]["payload"]
+        assert speech_payload == {"$ref": "#/components/schemas/SpeechPayload"}
         assert "delete" in schema["paths"]["/api/v1/games/{game_id}"]
     await database.dispose()
 

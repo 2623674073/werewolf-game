@@ -47,6 +47,8 @@ describe('api client', () => {
         response({
           authenticated: true,
           capabilities: ['control', 'public_view', 'god_view'],
+          runtime_mode: 'demo',
+          version: '0.3.0',
         }),
       )
       .mockResolvedValueOnce(response([game]))

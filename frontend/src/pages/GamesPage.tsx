@@ -8,6 +8,7 @@ import { ApiError, createGame, deleteGame, listGames, startGame } from '../api/c
 import type { Game, GameStatus } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { RuntimeBadge } from '../components/RuntimeBadge'
 
 const PAGE_SIZE = 20
 
@@ -86,6 +87,7 @@ export function GamesPage() {
             <span>AI WEREWOLF OBSERVATORY</span>
           </div>
         </div>
+        <RuntimeBadge />
         <button
           className="button ghost"
           onClick={() => {
