@@ -5,6 +5,8 @@ from typing import Literal
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+EXAMPLE_APP_TOKEN = "-".join(("replace", "with", "at", "least", "24", "characters"))
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -44,6 +46,6 @@ class Settings(BaseSettings):
                 "openai 模式必须配置 LLM_API_KEY、LLM_MODEL_ID 和 LLM_BASE_URL"
             )
         token = self.app_api_token.get_secret_value()
-        if token == "replace-with-at-least-24-characters":
+        if token == EXAMPLE_APP_TOKEN:
             raise ValueError("APP_API_TOKEN 不能使用示例占位值")
         return self

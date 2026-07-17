@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from werewolf_game.config import Settings
+from werewolf_game.config import EXAMPLE_APP_TOKEN, Settings
 
 
 def test_settings_reject_short_api_token() -> None:
@@ -36,5 +36,5 @@ def test_settings_reject_example_token() -> None:
     with pytest.raises(ValidationError):
         Settings(
             runtime_mode="demo",
-            app_api_token="replace-with-at-least-24-characters",
+            app_api_token=EXAMPLE_APP_TOKEN,
         )
