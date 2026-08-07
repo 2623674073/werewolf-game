@@ -16,12 +16,12 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
-    "agentscope==2.0.4",
+    "agentscope==2.0.5",
     "aiosqlite>=0.20,<1",
     "alembic>=1.14,<2",
     "fastapi>=0.115,<1",
     "httpx>=0.28,<1",
-    "mcp>=1.28,<2",
+    "mcp>=1.28,<3",
     "pydantic>=2.13,<3",
     "pydantic-settings>=2.7,<3",
     "prometheus-client>=0.22,<1",
@@ -42,7 +42,7 @@ werewolf-historian-mcp = "werewolf_game.mcp.historian_server:main"
 
 [dependency-groups]
 dev = [
-    "mypy>=1.14,<2",
+    "mypy>=1.14,<3",
     "pytest>=8,<10",
     "pytest-asyncio>=0.25,<2",
     "pytest-cov>=6,<8",
